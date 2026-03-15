@@ -186,6 +186,7 @@ Vid första start visas en setup-wizard som guidar dig genom konfigurationen:
 - [SETUP_FLOW.md](./docs/SETUP_FLOW.md) - Setup-wizardens alla steg
 - [WEB_GUI.md](./docs/WEB_GUI.md) - Web-gränssnitt och API-referens
 - [REPORT_TEMPLATE.md](./docs/REPORT_TEMPLATE.md) - Mallsystem (Jinja2)
+- [SIGNAL_CLI_MANUAL.md](./docs/SIGNAL_CLI_MANUAL.md) - Manuell signal-cli konfiguration och onboarding
 
 ## Rekommenderad programvara
 
