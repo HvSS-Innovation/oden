@@ -21,6 +21,8 @@ from oden.config import SIGNAL_CLI_LOG_FILE, SIGNAL_CLI_PATH, SIGNAL_DATA_PATH
 
 logger = logging.getLogger(__name__)
 
+_LINK_URI_TIMEOUT_MSG = "Tidsgränsen överskreds i väntan på länk-URI från signal-cli"
+
 
 def get_bundled_signal_cli_path() -> str | None:
     """Get path to bundled signal-cli."""
@@ -302,9 +304,10 @@ class SignalLinker:
             non_uri_lines: list[str] = []
             if self.process.stdout:
                 try:
-                    deadline = asyncio.get_event_loop().time() + 30.0
+                    loop = asyncio.get_running_loop()
+                    deadline = loop.time() + 30.0
                     while True:
-                        remaining = deadline - asyncio.get_event_loop().time()
+                        remaining = deadline - loop.time()
                         if remaining <= 0:
                             raise asyncio.TimeoutError()
                         line = await asyncio.wait_for(
@@ -325,7 +328,7 @@ class SignalLinker:
                             logger.debug("signal-cli output (not URI): %s", text)
                 except asyncio.TimeoutError:
                     self.status = "error"
-                    self.error = "Tidsgränsen överskreds i väntan på länk-URI från signal-cli"
+                    self.error = _LINK_URI_TIMEOUT_MSG
                     if non_uri_lines:
                         logger.error(
                             "Timeout waiting for link URI. signal-cli output so far: %s",
@@ -352,12 +355,16 @@ class SignalLinker:
             if stderr_text:
                 logger.error("signal-cli stderr: %s", stderr_text)
 
-            self.error = "Kunde inte hämta länk-URI från signal-cli" + (f": {stderr_text}" if stderr_text else "")
+            self.error = (
+                f"Kunde inte hämta länk-URI från signal-cli: {stderr_text}"
+                if stderr_text
+                else "Kunde inte hämta länk-URI från signal-cli"
+            )
             return None
 
         except asyncio.TimeoutError:
             self.status = "error"
-            self.error = "Tidsgränsen överskreds i väntan på länk-URI från signal-cli"
+            self.error = _LINK_URI_TIMEOUT_MSG
             await self.cancel()
             return None
         except Exception as e:
