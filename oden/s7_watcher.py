@@ -190,6 +190,22 @@ async def log_groups(writer: asyncio.StreamWriter) -> list[dict]:
 
             if not groups:
                 logger.info("No groups found for this account.")
+                # Empty RPC result — check if DB has cached groups
+                db_groups = get_all_groups(CONFIG_DB)
+                if db_groups:
+                    logger.info("RPC returned empty, loaded %d group(s) from database cache", len(db_groups))
+                    app_state.update_groups(
+                        [
+                            {
+                                "id": g["id"],
+                                "name": g["name"],
+                                "members": [None] * g["memberCount"],
+                                "isMember": g["isMember"],
+                            }
+                            for g in db_groups
+                        ]
+                    )
+                    return db_groups
                 return []
 
             logger.info(f"Account is member of {len(groups)} group(s):")

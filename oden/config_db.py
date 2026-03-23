@@ -152,10 +152,11 @@ def init_db(db_path: Path) -> None:
                 )
             """)
 
-        # Store current schema version
+        # Store current schema version (never downgrade)
+        latest_version = max(current_version, 3)
         cursor.execute(
             "INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)",
-            ("schema_version", "3"),
+            ("schema_version", str(latest_version)),
         )
         conn.commit()
         if is_new:
