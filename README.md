@@ -122,7 +122,8 @@ ruff format .
 ### Funktioner
 
 - **Setup-wizard** - Guidar dig genom konfigurationen vid första start
-- **Web GUI** - Dashboard med config, loggar, grupphantering och template-editor
+- **Web GUI** - Dashboard med config, loggar, grupphantering, template-editor och kontohantering
+- **Multi-account** - Hantera flera Signal-konton via *Signal-konton*-fliken (länka, aktivera, radera)
 - **System Tray** - Starta/stoppa, öppna GUI och avsluta Oden från systemfältet (macOS/Linux/Windows)
 - **Svara på meddelande** - Svaret läggs till i din senaste rapport (inom 30 min)
 - **`++` kommando** - Meddelanden som börjar med `++` läggs till i senaste rapporten *(avstängt per default, aktiveras i config)*

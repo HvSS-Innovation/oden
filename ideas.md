@@ -7,7 +7,7 @@ from signal-cli via `log_groups()` and updates `app_state.groups`. This way
 newly joined groups appear in the web GUI without restarting Oden.
 
 The startup task `log_groups` already does this on boot — the new endpoint
-would reuse that function. The handler needs access to `reader`/`writer` from
+would reuse that function. The handler needs access to `writer` from
 `app_state`, and should return a clear error if signal-cli isn't connected.
 
 ---
@@ -40,7 +40,7 @@ Auth-middleware i `web_server.py` definierar `PROTECTED_ENDPOINTS` (exakta sökv
 | `GET /api/responses` (lista) | Nej | Ej testat | ❌ Nej — matchar inte prefix | ✅ Docs OK | Ingen åtgärd |
 | `GET /api/responses/{id}` | Nej | Ej testat | ✅ Ja — prefix `/api/responses/` | ❌ Docs fel | Uppdatera docs: Auth = ✅ |
 | `POST /api/config-file` (INI-import) | Nej | Ej testat | ❌ Nej | ✅ Docs OK | Ingen åtgärd |
-| `DELETE /api/config/reset` | Nej | Ej testat | ✅ Ja — `PROTECTED_ENDPOINTS` | ❌ Docs fel | Uppdatera docs: Auth = ✅ |
+| `DELETE /api/config/reset` | Nej | Ej testat | ✅ Ja — `PROTECTED_ENDPOINTS` | ✅ **Åtgärdad** | Docs uppdaterade: Auth = ✅. Test skapade. |
 
 ### Filnamnsformat — namnkonvention
 
