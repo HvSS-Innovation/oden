@@ -9,7 +9,6 @@ from typing import Any
 
 from oden import config as cfg
 from oden.attachment_handler import save_attachments
-from oden.config import CONFIG_DB
 from oden.config_db import get_response_by_keyword, upsert_group
 from oden.formatting import (
     _format_quote,
@@ -303,7 +302,7 @@ async def process_message(obj: dict[str, Any], reader: asyncio.StreamReader, wri
         command = msg.strip()[1:].lower()
         if not command:
             return
-        response_text = get_response_by_keyword(CONFIG_DB, command)
+        response_text = get_response_by_keyword(cfg.CONFIG_DB, command)
         if response_text:
             try:
                 await _send_reply(group_id, response_text, writer)
