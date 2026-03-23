@@ -28,6 +28,12 @@ class AppState:
     # System tray icon controller (set by main if available)
     tray: Any = None  # OdenTray | None
 
+    # --- Account linking state (set by account_handlers) ---
+    link_status: str = "idle"  # idle, waiting, linked, error
+    link_uri: str | None = None
+    linked_number: str | None = None
+    link_error: str | None = None
+
     # --- Lifecycle fields (set by _run_lifecycle) ---
     loop: asyncio.AbstractEventLoop | None = field(default=None, repr=False)
     stop_event: asyncio.Event | None = field(default=None, repr=False)

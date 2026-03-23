@@ -1,4 +1,4 @@
-// tabs.js — Depends on: responses.js (loadResponses), templates.js (loadTemplate)
+// tabs.js — Depends on: responses.js (loadResponses), templates.js (loadTemplate), accounts.js (loadAccounts)
 //
 // Tab switching with lazy-loading of tab content on first visit.
 
@@ -18,5 +18,9 @@ function showTab(tabName) {
     // Load responses when switching to responses tab
     if (tabName === 'responses') {
         loadResponses();
+    }
+    // Load accounts when switching to accounts tab
+    if (tabName === 'accounts') {
+        loadAccounts();
     }
 }

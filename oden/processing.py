@@ -144,7 +144,7 @@ async def _send_reply(group_id: str, message: str, writer: asyncio.StreamWriter)
     json_request = {
         "jsonrpc": "2.0",
         "method": "send",
-        "params": {"groupId": group_id, "message": message},
+        "params": {"account": cfg.SIGNAL_NUMBER, "groupId": group_id, "message": message},
         "id": request_id,
     }
     request_str = json.dumps(json_request) + "\n"

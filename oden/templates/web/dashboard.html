@@ -71,6 +71,7 @@
                     <button class="tab-btn" onclick="showTab('advanced')">Avancerat</button>
                     <button class="tab-btn" onclick="showTab('templates')">Mallar</button>
                     <button class="tab-btn" onclick="showTab('responses')">Svar</button>
+                    <button class="tab-btn" onclick="showTab('accounts')">Signal-konton</button>
                 </div>
 
                 <div id="tab-basic" class="tab-content active">
@@ -351,6 +352,47 @@
                     </div>
                 </div>
 
+                <div id="tab-accounts" class="tab-content">
+                    <div class="config-section">
+                        <h3>📱 Signal-konton</h3>
+                        <p style="color: #888; margin-bottom: 15px; font-size: 0.9em;">
+                            Hantera Signal-konton som signal-cli har konfigurerat. Lägg till, ta bort och välj aktivt konto.
+                        </p>
+
+                        <div id="accounts-warning" style="display: none; background: #4a3000; border: 1px solid #ff9800; border-radius: 8px; padding: 12px; margin-bottom: 15px; color: #ffcc80;">
+                            <strong>⚠️ Ogiltigt aktivt konto:</strong>
+                            <span id="accounts-warning-text">Det konfigurerade kontot finns inte bland de tillgängliga kontona.</span>
+                        </div>
+
+                        <div id="accounts-list" style="margin-bottom: 20px;">
+                            <div class="empty-state">Laddar konton...</div>
+                        </div>
+
+                        <div class="config-actions">
+                            <button type="button" class="btn btn-primary" onclick="startAccountLink()">➕ Lägg till konto</button>
+                        </div>
+                    </div>
+
+                    <!-- QR Code Link Modal -->
+                    <div id="account-link-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; display: none; align-items: center; justify-content: center;">
+                        <div style="background: #16213e; border-radius: 12px; padding: 30px; max-width: 400px; width: 90%; text-align: center; border: 1px solid #333;">
+                            <h3 style="margin: 0 0 15px 0; color: #4fc3f7;">Länka nytt konto</h3>
+                            <div id="link-qr-container" style="margin: 20px 0; background: white; padding: 15px; border-radius: 8px; display: inline-block;">
+                                <div class="empty-state" style="color: #333;">Genererar QR-kod...</div>
+                            </div>
+                            <p id="link-status-text" style="color: #aaa; margin: 10px 0;">Skanna QR-koden med Signal-appen på din telefon</p>
+                            <div id="link-success" style="display: none; color: #4caf50; margin: 10px 0;">
+                                <strong>✅ Konto länkat!</strong>
+                                <span id="link-success-number"></span>
+                            </div>
+                            <div class="config-actions" style="margin-top: 15px;">
+                                <button type="button" class="btn btn-secondary" id="link-cancel-btn" onclick="cancelAccountLink()">Avbryt</button>
+                                <button type="button" class="btn btn-primary" id="link-done-btn" style="display: none;" onclick="finishAccountLink()">Klar</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
 
             <div class="card full-width">
@@ -375,6 +417,7 @@
     {% include "js/dashboard/invitations.js" %}
     {% include "js/dashboard/config.js" %}
     {% include "js/dashboard/responses.js" %}
+    {% include "js/dashboard/accounts.js" %}
     {% include "js/dashboard/templates.js" %}
     {% include "js/dashboard/tabs.js" %}
     {% include "js/dashboard/init.js" %}
