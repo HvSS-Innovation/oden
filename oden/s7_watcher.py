@@ -232,6 +232,30 @@ async def update_profile(writer: asyncio.StreamWriter, display_name: str | None)
         logger.error(f"ERROR sending updateProfile request: {e}")
 
 
+async def _reader_loop(reader: asyncio.StreamReader, app_state: object) -> None:
+    """Read lines from the TCP socket and route them via the central dispatcher.
+
+    Runs as a background task so that RPC Futures are resolved while
+    other coroutines (log_groups, send_startup_message) are awaiting them.
+    """
+    while not reader.at_eof():
+        line = await reader.readline()
+        if not line:
+            break
+
+        message_str = line.decode("utf-8").strip()
+        if not message_str:
+            continue
+
+        try:
+            data = json.loads(message_str)
+        except json.JSONDecodeError:
+            logger.error(f"Received non-JSON message: {message_str}")
+            continue
+
+        app_state.dispatch_line(data)
+
+
 async def subscribe_and_listen(host: str, port: int) -> None:
     """Connects to signal-cli via TCP socket, subscribes to messages, and processes them.
 
@@ -257,33 +281,22 @@ async def subscribe_and_listen(host: str, port: int) -> None:
         app_state.writer = writer
         app_state.reader = reader
 
+        # Start the reader/dispatcher loop as a background task so that
+        # RPC responses are consumed while we issue startup calls.
+        reader_task = asyncio.create_task(_reader_loop(reader, app_state))
+
         await update_profile(writer, DISPLAY_NAME)
         groups = await log_groups(writer)
         await send_startup_message(writer, groups)
 
-        # Single reader loop: dispatch all incoming lines centrally
-        while not reader.at_eof():
-            line = await reader.readline()
-            if not line:
-                break
+        # Process notifications until the reader loop ends (connection closed)
+        try:
+            while not reader_task.done():
+                try:
+                    notification = await asyncio.wait_for(app_state.notification_queue.get(), timeout=0.5)
+                except asyncio.TimeoutError:
+                    continue
 
-            message_str = line.decode("utf-8").strip()
-            if not message_str:
-                continue
-
-            try:
-                data = json.loads(message_str)
-            except json.JSONDecodeError:
-                logger.error(f"Received non-JSON message: {message_str}")
-                continue
-
-            # Route through the central dispatcher (RPC responses → Futures,
-            # receive notifications → notification_queue, others → log)
-            app_state.dispatch_line(data)
-
-            # Drain the notification queue and process messages
-            while not app_state.notification_queue.empty():
-                notification = app_state.notification_queue.get_nowait()
                 try:
                     params = notification.get("params")
                     if not params:
@@ -303,6 +316,10 @@ async def subscribe_and_listen(host: str, port: int) -> None:
                     await process_message(msg_data, reader, writer)
                 except Exception as e:
                     logger.error(f"Could not process message.\n  Error: {repr(e)}")
+        finally:
+            reader_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await reader_task
 
     except ConnectionRefusedError as e:
         logger.error(f"Connection to signal-cli daemon failed: {e}")

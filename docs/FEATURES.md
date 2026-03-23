@@ -18,8 +18,8 @@ Oden tar emot Signal-meddelanden via `signal-cli` och sparar dem som Markdown-fi
 ┌─────────────┐     ┌──────────────┐     ┌──────────────┐
 │ System Tray │────►│ s7_watcher   │◄───►│ signal-cli   │
 │ (pystray)   │     │ (entry point)│     │ TCP:7583     │
-└─────────────┘     └──────┬───────┘     └──────────────┘
-                           │
+└─────────────┘     └──────┬───────┘     │ (daemon mode)│
+                           │             └──────────────┘
               ┌────────────┼────────────┐
               │            │            │
      ┌────────▼──┐  ┌──────▼─────┐ ┌────▼────────┐
@@ -30,19 +30,21 @@ Oden tar emot Signal-meddelanden via `signal-cli` och sparar dem som Markdown-fi
               │     ┌──────▼─────────────────────┐
      ┌────────▼──┐  │ web_handlers/              │
      │template_  │  │  setup / config / groups   │
-     │loader     │  │  templates / responses     │
+     │loader     │  │  templates / accounts      │
      │(Jinja2)   │  └───────────────────────────-┘
      └───────────┘
 ```
 
 **Komponenter:**
 
-- **`s7_watcher.py`** — Startpunkt. Hanterar signal-cli-processen, TCP-anslutning, Web GUI och tray-ikon.
+- **`s7_watcher.py`** — Startpunkt. Hanterar signal-cli-processen, TCP-anslutning, Web GUI och tray-ikon. Reader-loop körs som bakgrundstask (`_reader_loop`).
 - **`processing.py`** — Kärnlogik. Parsar meddelanden, hanterar kommandon, append-läge och fil-I/O.
 - **`config.py` / `config_db.py`** — Konfiguration via SQLite-databas (`config.db`). Exponerar konstanter som `VAULT_PATH`, `SIGNAL_NUMBER`, `TIMEZONE`.
-- **`web_server.py` / `web_handlers/`** — aiohttp-baserat webbgränssnitt med setup-wizard och dashboard.
+- **`app_state.py`** — Singleton med delat tillstånd. Central JSON-RPC-dispatcher: `send_jsonrpc()` registrerar Futures per request-id, `dispatch_line()` dirigerar svar och notifikationer.
+- **`web_server.py` / `web_handlers/`** — aiohttp-baserat webbgränssnitt med setup-wizard och dashboard. Kontohantering via `account_handlers.py`.
 - **`template_loader.py`** — Jinja2-mallmotor med LRU-cache och sandboxed rendering.
 - **`tray.py`** — System tray-ikon via pystray (valfritt beroende).
+- **`attachment_handler.py`** — Hämtar och sparar bilagor via `app_state.send_jsonrpc()` (dirigerat genom central dispatcher).
 
 ---
 
@@ -261,6 +263,36 @@ Annars:
 
 ---
 
+## Multi-account-stöd
+
+Oden stöder hantering av flera Signal-konton via signal-cli:s multi-account daemon-läge.
+
+### Hur det fungerar
+
+| Egenskap | Beskrivning |
+|----------|-------------|
+| **Daemon-läge** | signal-cli startas utan `-u`-flagga, vilket aktiverar multi-account-stöd |
+| **Account-parameter** | Alla JSON-RPC-anrop inkluderar `account`-parameter för att ange vilken identitet som ska användas |
+| **Aktivt konto** | Konfigurerat i `SIGNAL_NUMBER` — meddelanden filtreras per aktivt konto |
+| **Meddelandefiltrering** | Receive-loopen ignorerar meddelanden för icke-aktiva konton |
+| **Gruppcache** | Rensas automatiskt vid kontobyte |
+
+### Kontohantering via GUI
+
+Fliken **Signal-konton** i Web GUI erbjuder:
+
+| Åtgärd | Beskrivning |
+|--------|-------------|
+| **Lista konton** | Visar alla länkade signal-cli-konton med aktivt konto markerat |
+| **Lägg till konto** | Startar QR-kodlänkning för att länka ett nytt Signal-konto |
+| **Aktivera konto** | Växlar aktivt konto — meddelanden behandlas för det valda kontot |
+| **Radera konto** | Tar bort kontots lokala data från signal-cli |
+| **Tvångsradera** | Raderar kontodata direkt från filsystemet (för korrupta konton). Skyddad mot path traversal |
+
+→ Se [WEB_GUI.md](WEB_GUI.md) för API-endpoints.
+
+---
+
 ## Filnamnsformat
 
 Filnamnet för sparade rapporter konfigureras via `filename_format`.
@@ -295,7 +327,7 @@ Signal-meddelanden kan innehålla bilagor (bilder, filer, etc.). Oden hanterar d
 
 | Egenskap | Beskrivning |
 |----------|-------------|
-| **Nedladdning** | Bilagor hämtas via `getAttachment` JSON-RPC-anrop till signal-cli |
+| **Nedladdning** | Bilagor hämtas via `getAttachment` JSON-RPC-anrop till signal-cli (via central dispatcher) |
 | **Lagring** | Sparas i unik undermapp: `vault/{grupp}/attachments/{unikt-id}/` |
 | **Filnamn** | Saniterade originalnamn, med indexprefix (`1_`, `2_`, etc.) |
 | **Embed-syntax** | Returneras som Obsidian-embeds: `![[attachments/{id}/1_bild.jpg]]` |

@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Multi-account-stöd**: signal-cli körs i multi-account daemon-läge (utan `-u`-flagga). Alla JSON-RPC-anrop inkluderar `account`-parameter
+- **Signal-konton-flik**: Ny flik i Web GUI för kontohantering — lista, länka via QR, aktivera, radera och tvångsradera signal-cli-konton
+- **Konto-API**: Nya endpoints: `GET /api/accounts`, `POST /api/accounts/link`, `POST /api/accounts/link-cancel`, `GET /api/accounts/link-status`, `POST /api/accounts/activate`, `DELETE /api/accounts/{number}`, `DELETE /api/accounts/{number}/force`
+- **Central JSON-RPC-dispatcher**: `app_state.send_jsonrpc()` registrerar Futures, `dispatch_line()` dirigerar RPC-svar och notifikationer. Bakgrunds-reader-loop (`_reader_loop`) körs som asyncio-task
+- **Auth-tester för kontokonton**: 13 nya tester för kontoendpoints + 2 tester för `/api/config/reset`
+
+### Fixed
+
+- **TCP reader race condition**: Alla JSON-RPC-svar dirigeras genom central dispatcher istället för direkt `StreamReader.readline()` (gäller `attachment_handler`, `log_groups`, m.fl.)
+- **Startup-deadlock**: Reader-loopen startas som bakgrundstask *innan* `log_groups()` anropas, så att RPC-svar konsumeras utan timeout
+- **Path traversal i force-delete**: `resolve()` + `is_relative_to()` validering på kontosökvägar
+- **XSS i kontofliken**: DOM-baserad rendering (createElement + addEventListener) istället för innerHTML med inline onclick
+- **Auth på `/api/config/reset`**: Endpointen lades till i `PROTECTED_ENDPOINTS` — kräver nu token
+- **Informationsläcka**: `path`-fält borttaget från `/api/accounts`-svaret (exponerade filsystemlayout)
+- **Död kod**: Borttagen `QueueFull`-hantering i `dispatch_line()` (kön är obegränsad)
+- **pollLinkStatus auth**: Lade till auth-header som saknades (resulterade alltid i 401)
+- **Gruppcache**: Rensas vid kontobyte så att rätt konto-grupper visas
+
+### Changed
+
+- **signal-cli daemon-läge**: Startas utan `-u`-flagga för multi-account-stöd
+- **`attachment_handler`**: Refaktorerad till `app_state.send_jsonrpc()` istället för direkt TCP-läsning
+- **Meddelandefiltrering**: Receive-loopen filtrerar meddelanden per aktivt konto
+
 ## [2.0.0] - 2026-03-23
 
 ### 🚀 Oden 2.0

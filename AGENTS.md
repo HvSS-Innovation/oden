@@ -8,8 +8,8 @@ Oden is a Signal-to-Obsidian bridge that receives Signal messages via `signal-cl
 ┌─────────────┐     ┌──────────────┐     ┌──────────────┐
 │ System Tray │────►│ s7_watcher   │◄───►│ signal-cli   │
 │ (pystray)   │     │ (entry point)│     │ TCP:7583     │
-└─────────────┘     └──────┬───────┘     └──────────────┘
-                           │
+└─────────────┘     └──────┬───────┘     │ (daemon mode)│
+                           │             └──────────────┘
               ┌────────────┼────────────┐
               │            │            │
      ┌────────▼──┐  ┌──────▼─────┐ ┌────▼────────┐
@@ -20,23 +20,22 @@ Oden is a Signal-to-Obsidian bridge that receives Signal messages via `signal-cl
      ┌────────▼──┐  ┌──────▼─────────────────────┐
      │template_  │  │ web_handlers/              │
      │loader     │  │  setup / config / groups   │
-     │(Jinja2)   │  │  templates                 │
+     │(Jinja2)   │  │  templates / accounts      │
      └───────────┘  └───────────────────────────-┘
 ```
 
-- **s7_watcher.py**: Entry point. Manages signal-cli subprocess, TCP connection, startup tasks, web GUI, tray icon
+- **s7_watcher.py**: Entry point. Manages signal-cli subprocess, TCP connection, startup tasks, web GUI, tray icon. Reader loop runs as background task (`_reader_loop`) to avoid deadlocking startup RPC calls
 - **processing.py**: Core logic. Parses messages, handles commands (`#help`), append mode (`++`), file I/O
 - **config.py**: Loads config from `config_db`, exports constants like `VAULT_PATH`, `SIGNAL_NUMBER`, `TIMEZONE`. Legacy INI import/export supported
 - **config_db.py**: SQLite config database (`config.db`). Key-value store with type-aware serialization, INI migration, integrity checking
-- **app_state.py**: Singleton application state — holds references to writer, signal-cli process, web runner, tray icon
+- **app_state.py**: Singleton application state — holds references to writer, signal-cli process, web runner, tray icon. Central JSON-RPC dispatcher: `send_jsonrpc()` registers Futures by request id, `dispatch_line()` routes incoming lines (RPC responses → Futures, notifications → queue)
 - **tray.py**: System tray icon via pystray. Start/stop toggle, open web GUI, quit. Blocks main thread on macOS (NSApplication)
 - **formatting.py**: Filename sanitization, path generation, display formatting
 - **signal_manager.py**: Starts/stops the signal-cli subprocess
 - **web_server.py**: aiohttp web server with setup mode and dashboard mode, token-based auth for sensitive endpoints
-- **web_handlers/**: Route handlers — `setup_handlers.py` (wizard, Signal linking/QR), `config_handlers.py` (CRUD, export), `group_handlers.py` (ignore/whitelist, join, invitations), `template_handlers.py` (Jinja2 editor, preview)
-- **web_templates.py**: Inline HTML/CSS templates for dashboard and setup wizard
+- **web_handlers/**: Route handlers — `setup_handlers.py` (wizard, Signal linking/QR), `config_handlers.py` (CRUD, export), `group_handlers.py` (ignore/whitelist, join, invitations), `template_handlers.py` (Jinja2 editor, preview), `account_handlers.py` (multi-account: list, link, activate, delete, force-delete)
 - **template_loader.py**: Jinja2 template engine for report formatting. Templates loaded from config_db or files, with LRU cache and validation
-- **attachment_handler.py**: Downloads and saves Signal attachments to vault subdirectories
+- **attachment_handler.py**: Downloads and saves Signal attachments to vault subdirectories. Uses `app_state.send_jsonrpc()` for attachment fetching (routed through central dispatcher)
 - **link_formatter.py**: Regex-based linking and location extraction (Google Maps, Apple Maps, OSM → geo coordinates)
 - **path_utils.py**: Path validation, sanitization, directory operations. When `ODEN_HOME` env var is set (Docker), the home-directory constraint is relaxed
 - **log_utils.py**: Logging setup with file rotation, log level persistence
@@ -46,12 +45,22 @@ Oden is a Signal-to-Obsidian bridge that receives Signal messages via `signal-cl
 ## Key Patterns
 
 ### Async JSON-RPC Communication
-All signal-cli communication uses JSON-RPC over TCP. Pattern for sending:
+All signal-cli communication uses JSON-RPC over TCP. signal-cli runs in **multi-account daemon mode** (no `-u` flag), so all RPC calls include an `account` parameter.
+
+Preferred pattern — use the central dispatcher:
 ```python
-json_request = {"jsonrpc": "2.0", "method": "methodName", "params": {...}, "id": request_id}
+from oden.app_state import get_app_state
+response = await get_app_state().send_jsonrpc("methodName", params={"account": cfg.SIGNAL_NUMBER, ...})
+```
+
+Fire-and-forget pattern (no response needed):
+```python
+json_request = {"jsonrpc": "2.0", "method": "methodName", "params": {"account": cfg.SIGNAL_NUMBER, ...}, "id": request_id}
 writer.write((json.dumps(json_request) + "\n").encode("utf-8"))
 await writer.drain()
 ```
+
+**Important:** Never read directly from `reader` — all responses are routed through `app_state.dispatch_line()` by the background `_reader_loop` task.
 
 ### Config Constants
 Config is stored in SQLite via `config_db`. Module-level constants are loaded from the database at startup:
@@ -108,6 +117,7 @@ A web interface runs automatically at `http://127.0.0.1:8080` (localhost only, o
 - Groups list with ignore/whitelist toggle
 - Join group via Signal invite link, accept/decline pending invitations
 - Template editor with split-screen preview
+- Signal accounts tab (list, link via QR, activate, delete, force-delete)
 - Shutdown button
 - INI export/import
 
@@ -156,7 +166,7 @@ For stable releases, use git tags:
 
 ## Testing Guidelines
 - Tests are in `tests/` using pytest
-- The full test suite (~130 tests) runs in about **10 seconds** — always wait for it to finish
+- The full test suite (~250 tests) runs in about **10 seconds** — always wait for it to finish
 - Mock config values when testing: patch `oden.config.VAULT_PATH` etc.
 - Don't get stuck fixing difficult tests - note the issue and move on
 - **Terminal output**: Always read terminal output using `get_terminal_output` tool before continuing. Run commands directly without piping or redirection tricks like `2>&1`, `| tail`, `| head`, `echo $?` etc. Just run `python -m pytest -v` straight up.

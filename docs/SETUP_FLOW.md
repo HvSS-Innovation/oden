@@ -111,6 +111,10 @@ Registrerar ett nytt Signal-nummer direkt.
 
 Oden kan automatiskt detektera befintliga Signal-konton genom att läsa `signal-cli/data/`-katalogen direkt — utan att starta JVM:en. Om konton hittas erbjuds de som alternativ.
 
+### Multi-account
+
+Setup-wizarden konfigurerar det första kontot. Ytterligare konton kan läggas till efter setup via **Signal-konton**-fliken i dashboard-läge. signal-cli körs i multi-account daemon-läge och kan hantera flera konton parallellt — men Oden behandlar meddelanden för ett aktivt konto åt gången.
+
 ---
 
 ## Steg 3: Vault-sökväg och visningsnamn

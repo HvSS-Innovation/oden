@@ -99,6 +99,18 @@ Nyckelord anges som kommaseparerad lista. Varje nyckelord triggar samma svar nä
 | **Testfunktion** | Skriv in testtext och se vilka mönster som matchar i realtid |
 | **Validering** | Regex-uttryck valideras innan sparning |
 
+#### Signal-konton
+
+Hantera signal-cli-konton (multi-account daemon-läge).
+
+| Funktion | Beskrivning |
+|----------|-------------|
+| **Lista konton** | Visar alla länkade signal-cli-konton med aktivt konto markerat |
+| **Lägg till konto** | Starta QR-kodlänkning för att lägga till ett nytt Signal-konto |
+| **Aktivera konto** | Växla aktivt konto — meddelanden behandlas för det valda kontot |
+| **Radera konto** | Ta bort kontodata från signal-cli (avregistrerar inte från Signal) |
+| **Tvångsradera** | Radera kontodatan direkt från filsystemet (för korrupta konton) |
+
 ### Övriga funktioner
 
 | Funktion | Beskrivning |
@@ -148,7 +160,7 @@ Dessa är enbart tillgängliga i setup-mode.
 | POST | `/api/setup/verify-code` | Nej | Verifiera registreringskod |
 | POST | `/api/setup/save` | Nej | Spara setup-konfiguration |
 | POST | `/api/setup/install-obsidian-template` | Nej | Installera Obsidian-mallar i valvet |
-| DELETE | `/api/setup/reset` | Nej | Mjuk reset (återgå till setup) |
+| DELETE | `/api/setup/reset` | ✅ | Mjuk reset (återgå till setup) |
 
 ### Dashboard-endpoints
 
@@ -164,6 +176,18 @@ Dessa är enbart tillgängliga i setup-mode.
 | POST | `/api/config-file` | Nej | Importera INI-konfiguration |
 | DELETE | `/api/config/reset` | ✅ | Återställ konfiguration |
 | POST | `/api/shutdown` | ✅ | Stäng ner Oden |
+
+#### Signal-konton
+
+| Metod | Sökväg | Auth | Beskrivning |
+|-------|--------|------|-------------|
+| GET | `/api/accounts` | Nej | Lista alla länkade konton |
+| POST | `/api/accounts/link` | ✅ | Starta QR-kodlänkning för nytt konto |
+| POST | `/api/accounts/link-cancel` | ✅ | Avbryt pågående länkning |
+| GET | `/api/accounts/link-status` | ✅ | Kontrollera länkningsstatus |
+| POST | `/api/accounts/activate` | ✅ | Växla aktivt konto |
+| DELETE | `/api/accounts/{number}` | ✅ | Radera kontots lokala data |
+| DELETE | `/api/accounts/{number}/force` | ✅ | Tvångsradera kontodata (filsystem) |
 
 #### Loggar
 
