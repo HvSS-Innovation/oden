@@ -275,7 +275,10 @@ async def _auto_detect_account(app_state: object) -> None:
 
         available = []
         for acc in response["result"]:
-            number = acc.get("number") or acc
+            if isinstance(acc, dict):
+                number = acc.get("number")
+            else:
+                number = acc
             if isinstance(number, str):
                 available.append(number)
 
@@ -295,9 +298,16 @@ async def _auto_detect_account(app_state: object) -> None:
             set_config_value(CONFIG_DB, "signal_number", chosen)
             reload_config()
         else:
+            if cfg.WEB_ENABLED:
+                ui_hint = "Välj rätt konto via Signal-konton i webbgränssnittet."
+            else:
+                ui_hint = (
+                    "Uppdatera 'signal_number' i konfigurationen eller aktivera "
+                    "webbgränssnittet (WEB_ENABLED) för att välja konto."
+                )
             logger.warning(
                 f"Konfigurerat nummer ({cfg.SIGNAL_NUMBER}) finns inte bland tillgängliga konton: "
-                f"{', '.join(available)}. Välj rätt konto via Signal-konton i webbgränssnittet."
+                f"{', '.join(available)}. {ui_hint}"
             )
     except Exception as e:
         logger.warning(f"Kunde inte auto-detektera konto: {e}")
