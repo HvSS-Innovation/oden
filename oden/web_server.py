@@ -21,6 +21,7 @@ from oden.web_handlers import (
     accounts_activate_handler,
     accounts_delete_handler,
     accounts_force_delete_handler,
+    accounts_link_cancel_handler,
     accounts_link_handler,
     accounts_link_status_handler,
     accounts_list_handler,
@@ -77,6 +78,7 @@ PROTECTED_ENDPOINTS = {
     "/api/config/export",  # GET - export config as INI
     "/api/setup/reset",  # DELETE - re-run setup
     "/api/accounts/link",  # POST - link new account
+    "/api/accounts/link-cancel",  # POST - cancel link
     "/api/accounts/activate",  # POST - switch active account
 }
 
@@ -231,6 +233,7 @@ def create_app(setup_mode: bool = False) -> web.Application:
         app.router.add_get("/api/accounts", accounts_list_handler)
         app.router.add_post("/api/accounts/link", accounts_link_handler)
         app.router.add_get("/api/accounts/link-status", accounts_link_status_handler)
+        app.router.add_post("/api/accounts/link-cancel", accounts_link_cancel_handler)
         app.router.add_post("/api/accounts/activate", accounts_activate_handler)
         app.router.add_delete("/api/accounts/{number}", accounts_delete_handler)
         app.router.add_delete("/api/accounts/{number}/force", accounts_force_delete_handler)

@@ -9,6 +9,7 @@ from oden.web_handlers.account_handlers import (
     accounts_activate_handler,
     accounts_delete_handler,
     accounts_force_delete_handler,
+    accounts_link_cancel_handler,
     accounts_link_handler,
     accounts_link_status_handler,
     accounts_list_handler,
@@ -71,6 +72,7 @@ __all__ = [
     # Account handlers
     "accounts_list_handler",
     "accounts_link_handler",
+    "accounts_link_cancel_handler",
     "accounts_link_status_handler",
     "accounts_activate_handler",
     "accounts_delete_handler",

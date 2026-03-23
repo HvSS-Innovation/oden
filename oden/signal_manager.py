@@ -73,8 +73,7 @@ def is_signal_cli_running(host: str, port: int) -> bool:
 class SignalManager:
     """Manages the signal-cli subprocess."""
 
-    def __init__(self, number: str, host: str, port: int) -> None:
-        self.number = number
+    def __init__(self, host: str, port: int) -> None:
         self.host = host
         self.port = port
         self.process = None

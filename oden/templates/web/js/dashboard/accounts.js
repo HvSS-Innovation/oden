@@ -176,7 +176,10 @@ async function startAccountLink() {
 
 async function pollLinkStatus() {
     try {
-        const response = await fetch('/api/accounts/link-status');
+        const token = await getApiToken();
+        const response = await fetch('/api/accounts/link-status', {
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
         const data = await response.json();
 
         if (data.status === 'linked') {
@@ -206,11 +209,23 @@ async function pollLinkStatus() {
     }
 }
 
-function cancelAccountLink() {
+async function cancelAccountLink() {
     if (linkPollInterval) {
         clearInterval(linkPollInterval);
         linkPollInterval = null;
     }
+
+    // Inform the server to cancel the link operation
+    try {
+        const token = await getApiToken();
+        await fetch('/api/accounts/link-cancel', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+    } catch (error) {
+        console.error('Failed to cancel account link on server:', error);
+    }
+
     document.getElementById('account-link-modal').style.display = 'none';
 }
 

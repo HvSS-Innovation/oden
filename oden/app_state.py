@@ -28,6 +28,12 @@ class AppState:
     # System tray icon controller (set by main if available)
     tray: Any = None  # OdenTray | None
 
+    # --- JSON-RPC dispatcher state ---
+    # Pending RPC responses: request_id → Future
+    rpc_pending: dict[str, asyncio.Future] = field(default_factory=dict, repr=False)
+    # Queue for incoming receive notifications (consumed by listener loop)
+    notification_queue: asyncio.Queue = field(default_factory=asyncio.Queue, repr=False)
+
     # --- Account linking state (set by account_handlers) ---
     link_status: str = "idle"  # idle, waiting, linked, error
     link_uri: str | None = None
@@ -45,6 +51,74 @@ class AppState:
         """Generate a unique request ID for JSON-RPC calls."""
         self._request_id += 1
         return f"web-{self._request_id}"
+
+    async def send_jsonrpc(
+        self,
+        method: str,
+        params: dict | None = None,
+        timeout: float = 10.0,
+    ) -> dict | None:
+        """Send a JSON-RPC request and await the response via the central dispatcher.
+
+        The reader dispatcher (run in subscribe_and_listen) routes responses
+        by matching request id to a Future stored in rpc_pending.
+
+        Returns the parsed response dict, or None on timeout/error.
+        """
+        import json
+
+        if not self.writer:
+            return None
+
+        request_id = self.get_next_request_id()
+        request = {"jsonrpc": "2.0", "method": method, "id": request_id}
+        if params:
+            request["params"] = params
+
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[dict] = loop.create_future()
+        self.rpc_pending[request_id] = future
+
+        try:
+            self.writer.write((json.dumps(request) + "\n").encode("utf-8"))
+            await self.writer.drain()
+            return await asyncio.wait_for(future, timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.warning("Timeout waiting for %s response (id=%s)", method, request_id)
+            return None
+        except (OSError, ConnectionError) as e:
+            logger.error("Error in JSON-RPC call %s: %s", method, e)
+            return None
+        finally:
+            self.rpc_pending.pop(request_id, None)
+
+    def dispatch_line(self, data: dict) -> None:
+        """Route a parsed JSON line to the correct consumer.
+
+        Called by the single reader loop in subscribe_and_listen().
+        - If 'id' matches a pending RPC Future → resolve it.
+        - If it's a receive notification → put on notification_queue.
+        - Otherwise log and discard.
+        """
+        response_id = data.get("id")
+        if response_id and response_id in self.rpc_pending:
+            future = self.rpc_pending.pop(response_id)
+            if not future.done():
+                future.set_result(data)
+            return
+
+        if data.get("method") == "receive":
+            try:
+                self.notification_queue.put_nowait(data)
+            except asyncio.QueueFull:
+                logger.warning("Notification queue full, dropping receive notification")
+            return
+
+        # Log fire-and-forget responses (e.g. updateProfile, send) at debug level
+        if response_id:
+            logger.debug("Received unmatched RPC response id=%s", response_id)
+        else:
+            logger.debug("Received non-message data: %s", data)
 
     def update_groups(self, groups: list[dict]) -> None:
         """Update the cached groups list."""

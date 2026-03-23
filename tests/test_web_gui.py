@@ -316,6 +316,109 @@ class TestProtectedEndpointsRequireAuth(AioHTTPTestCase):
         resp = await self.client.get("/api/invitations")
         self.assertEqual(resp.status, 200)
 
+    # ------------------------------------------------------------------
+    # /api/accounts/link (protected)
+    # ------------------------------------------------------------------
+    async def test_accounts_link_rejects_without_token(self):
+        resp = await self.client.post("/api/accounts/link", json={})
+        self.assertEqual(resp.status, 401)
+
+    async def test_accounts_link_accepts_valid_token(self):
+        token = await self._get_valid_token()
+        resp = await self.client.post(
+            "/api/accounts/link",
+            json={},
+            headers=self._auth_header(token),
+        )
+        # Will return 503 (not connected) but not 401
+        self.assertNotEqual(resp.status, 401)
+
+    # ------------------------------------------------------------------
+    # /api/accounts/link-cancel (protected)
+    # ------------------------------------------------------------------
+    async def test_accounts_link_cancel_rejects_without_token(self):
+        resp = await self.client.post("/api/accounts/link-cancel")
+        self.assertEqual(resp.status, 401)
+
+    async def test_accounts_link_cancel_accepts_valid_token(self):
+        token = await self._get_valid_token()
+        resp = await self.client.post(
+            "/api/accounts/link-cancel",
+            headers=self._auth_header(token),
+        )
+        self.assertNotEqual(resp.status, 401)
+
+    # ------------------------------------------------------------------
+    # /api/accounts/activate (protected)
+    # ------------------------------------------------------------------
+    async def test_accounts_activate_rejects_without_token(self):
+        resp = await self.client.post(
+            "/api/accounts/activate",
+            json={"number": "+46700000000"},
+        )
+        self.assertEqual(resp.status, 401)
+
+    async def test_accounts_activate_accepts_valid_token(self):
+        token = await self._get_valid_token()
+        resp = await self.client.post(
+            "/api/accounts/activate",
+            json={"number": "+46700000000"},
+            headers=self._auth_header(token),
+        )
+        self.assertNotEqual(resp.status, 401)
+
+    # ------------------------------------------------------------------
+    # /api/accounts/{number} DELETE (prefix-protected)
+    # ------------------------------------------------------------------
+    async def test_accounts_delete_rejects_without_token(self):
+        resp = await self.client.delete("/api/accounts/+46700000000")
+        self.assertEqual(resp.status, 401)
+
+    async def test_accounts_delete_accepts_valid_token(self):
+        token = await self._get_valid_token()
+        resp = await self.client.delete(
+            "/api/accounts/+46700000000",
+            headers=self._auth_header(token),
+        )
+        self.assertNotEqual(resp.status, 401)
+
+    # ------------------------------------------------------------------
+    # /api/accounts/{number}/force DELETE (prefix-protected)
+    # ------------------------------------------------------------------
+    async def test_accounts_force_delete_rejects_without_token(self):
+        resp = await self.client.delete("/api/accounts/+46700000000/force")
+        self.assertEqual(resp.status, 401)
+
+    async def test_accounts_force_delete_accepts_valid_token(self):
+        token = await self._get_valid_token()
+        resp = await self.client.delete(
+            "/api/accounts/+46700000000/force",
+            headers=self._auth_header(token),
+        )
+        self.assertNotEqual(resp.status, 401)
+
+    # ------------------------------------------------------------------
+    # /api/accounts/link-status (prefix-protected)
+    # ------------------------------------------------------------------
+    async def test_accounts_link_status_rejects_without_token(self):
+        resp = await self.client.get("/api/accounts/link-status")
+        self.assertEqual(resp.status, 401)
+
+    async def test_accounts_link_status_accepts_valid_token(self):
+        token = await self._get_valid_token()
+        resp = await self.client.get(
+            "/api/accounts/link-status",
+            headers=self._auth_header(token),
+        )
+        self.assertNotEqual(resp.status, 401)
+
+    # ------------------------------------------------------------------
+    # /api/accounts (unprotected — GET list)
+    # ------------------------------------------------------------------
+    async def test_unprotected_accounts_list_works_without_token(self):
+        resp = await self.client.get("/api/accounts")
+        self.assertEqual(resp.status, 200)
+
 
 class TestToggleGroupPersistence(AioHTTPTestCase):
     """Test that toggling whitelist/ignore groups persists to config_db."""
