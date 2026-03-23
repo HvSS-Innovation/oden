@@ -29,7 +29,7 @@ class TestS7Watcher(unittest.IsolatedAsyncioTestCase):
             s7_main()
 
         self.assertEqual(cm.exception.code, 0)
-        mock_signal_manager_class.assert_called_once_with("+1234567890", "1.2.3.4", 1234)
+        mock_signal_manager_class.assert_called_once_with("1.2.3.4", 1234)
         mock_manager_instance.start.assert_called_once()
         mock_subscribe.assert_called_once_with("1.2.3.4", 1234)
         # stop() is called both when the listener task finishes and in
@@ -90,7 +90,7 @@ class TestSignalManager(unittest.TestCase):
         """Tests finding executable from config path."""
         with patch.object(SignalManager, "_find_executable", new_callable=MagicMock) as mock_find:
             mock_find.return_value = "/config/path/signal-cli"
-            manager = SignalManager("num", "host", "port")
+            manager = SignalManager("host", "port")
             self.assertEqual(manager.executable, "/config/path/signal-cli")
 
     @patch("oden.config.SIGNAL_CLI_PATH", None)
@@ -99,7 +99,7 @@ class TestSignalManager(unittest.TestCase):
         """Tests finding executable from system PATH."""
         with patch.object(SignalManager, "_find_executable", new_callable=MagicMock) as mock_find:
             mock_find.return_value = "/usr/bin/signal-cli"
-            manager = SignalManager("num", "host", "port")
+            manager = SignalManager("host", "port")
             self.assertEqual(manager.executable, "/usr/bin/signal-cli")
 
     @patch("oden.config.SIGNAL_CLI_PATH", None)
@@ -110,7 +110,7 @@ class TestSignalManager(unittest.TestCase):
         """Tests finding the bundled executable."""
         with patch.object(SignalManager, "_find_executable", new_callable=MagicMock) as mock_find:
             mock_find.return_value = "/bundled/signal-cli"
-            manager = SignalManager("num", "host", "port")
+            manager = SignalManager("host", "port")
             self.assertEqual(manager.executable, "/bundled/signal-cli")
 
     @patch("oden.signal_manager.is_signal_cli_running", return_value=False)
@@ -122,7 +122,7 @@ class TestSignalManager(unittest.TestCase):
         mock_proc = MagicMock()
         mock_popen.return_value = mock_proc
 
-        manager = SignalManager("+123", "host", 1234)
+        manager = SignalManager("host", 1234)
         manager.start()
 
         mock_popen.assert_called_once()
@@ -131,7 +131,7 @@ class TestSignalManager(unittest.TestCase):
     @patch("oden.signal_manager.is_signal_cli_running", return_value=True)
     def test_start_already_running(self, mock_is_running, mock_find_executable):
         """Tests that start does nothing if process is already running."""
-        manager = SignalManager("+123", "host", 1234)
+        manager = SignalManager("host", 1234)
         with patch("subprocess.Popen") as mock_popen:
             manager.start()
             mock_popen.assert_not_called()

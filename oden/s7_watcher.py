@@ -157,7 +157,7 @@ async def send_startup_message(writer: asyncio.StreamWriter, groups: list[dict] 
         logger.error(f"ERROR sending startup message: {e}")
 
 
-async def log_groups(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> list[dict]:
+async def log_groups(writer: asyncio.StreamWriter) -> list[dict]:
     """Fetches and logs all groups the account is a member of.
 
     Reads config values dynamically to support live reload.
@@ -168,27 +168,14 @@ async def log_groups(reader: asyncio.StreamReader, writer: asyncio.StreamWriter)
     from oden import config as cfg
 
     app_state = get_app_state()
-    request_id = f"list-groups-{int(time.time())}"
-    json_request = {
-        "jsonrpc": "2.0",
-        "method": "listGroups",
-        "params": {"account": cfg.SIGNAL_NUMBER},
-        "id": request_id,
-    }
-    request_str = json.dumps(json_request) + "\n"
 
     try:
-        writer.write(request_str.encode("utf-8"))
-        await writer.drain()
-
-        # Wait for response with timeout
-        response_line = await asyncio.wait_for(reader.readline(), timeout=10.0)
-        if not response_line:
-            logger.warning("No response received for listGroups request")
-            return []
-
-        response = json.loads(response_line.decode("utf-8"))
-        if response.get("id") == request_id and "result" in response:
+        response = await app_state.send_jsonrpc(
+            "listGroups",
+            params={"account": cfg.SIGNAL_NUMBER},
+            timeout=10.0,
+        )
+        if response and "result" in response:
             groups = response["result"]
             # Cache groups in app_state for web GUI access
             app_state.update_groups(groups)
@@ -213,9 +200,6 @@ async def log_groups(reader: asyncio.StreamReader, writer: asyncio.StreamWriter)
             logger.debug(f"Unexpected response for listGroups: {response}")
             return []
 
-    except asyncio.TimeoutError:
-        logger.warning("Timeout waiting for listGroups response")
-        return []
     except Exception as e:
         logger.error(f"ERROR fetching groups: {e}")
         return []
@@ -251,6 +235,10 @@ async def update_profile(writer: asyncio.StreamWriter, display_name: str | None)
 async def subscribe_and_listen(host: str, port: int) -> None:
     """Connects to signal-cli via TCP socket, subscribes to messages, and processes them.
 
+    Runs a single reader loop that dispatches all incoming lines:
+    - RPC responses are routed to pending Futures (via app_state.dispatch_line)
+    - Receive notifications are queued and processed here
+
     In multi-account daemon mode, messages include an 'account' field.
     Only messages for the active account (cfg.SIGNAL_NUMBER) are processed.
     """
@@ -265,14 +253,15 @@ async def subscribe_and_listen(host: str, port: int) -> None:
         reader, writer = await asyncio.open_connection(host, port, limit=1024 * 1024 * 100)  # 100 MB limit
         logger.info("Connection successful. Waiting for messages...")
 
-        # Share writer with web server for sending commands
+        # Share writer/reader with web server for sending commands
         app_state.writer = writer
         app_state.reader = reader
 
         await update_profile(writer, DISPLAY_NAME)
-        groups = await log_groups(reader, writer)
+        groups = await log_groups(writer)
         await send_startup_message(writer, groups)
 
+        # Single reader loop: dispatch all incoming lines centrally
         while not reader.at_eof():
             line = await reader.readline()
             if not line:
@@ -284,9 +273,23 @@ async def subscribe_and_listen(host: str, port: int) -> None:
 
             try:
                 data = json.loads(message_str)
-                if data.get("method") == "receive" and (params := data.get("params")):
+            except json.JSONDecodeError:
+                logger.error(f"Received non-JSON message: {message_str}")
+                continue
+
+            # Route through the central dispatcher (RPC responses → Futures,
+            # receive notifications → notification_queue, others → log)
+            app_state.dispatch_line(data)
+
+            # Drain the notification queue and process messages
+            while not app_state.notification_queue.empty():
+                notification = app_state.notification_queue.get_nowait()
+                try:
+                    params = notification.get("params")
+                    if not params:
+                        continue
+
                     # Multi-account mode: extract envelope from nested format
-                    # Format may be: {account, envelope} or {subscription, result: {account, envelope}}
                     msg_data = params
                     if "result" in params and isinstance(params["result"], dict):
                         msg_data = params["result"]
@@ -298,21 +301,19 @@ async def subscribe_and_listen(host: str, port: int) -> None:
                         continue
 
                     await process_message(msg_data, reader, writer)
-                else:
-                    # Log other responses if they are not the response to our updateProfile request
-                    if not (isinstance(data, dict) and data.get("id", "").startswith("update-profile-")):
-                        logger.debug(f"Received non-message data: {data}")
-            except json.JSONDecodeError:
-                logger.error(f"Received non-JSON message: {message_str}")
-            except Exception as e:
-                logger.error(f"Could not process message.\n  Error: {repr(e)}\n  Message: {message_str}")
+                except Exception as e:
+                    logger.error(f"Could not process message.\n  Error: {repr(e)}")
 
     except ConnectionRefusedError as e:
         logger.error(f"Connection to signal-cli daemon failed: {e}")
         logger.error("Please ensure signal-cli is running in JSON-RPC mode with a TCP socket.")
         raise
     finally:
-        # Clear shared state
+        # Clear shared state and cancel any pending RPC futures
+        for future in app_state.rpc_pending.values():
+            if not future.done():
+                future.cancel()
+        app_state.rpc_pending.clear()
         app_state.writer = None
         app_state.reader = None
         if writer:
@@ -565,7 +566,7 @@ def main() -> None:
     app_state = get_app_state()
     app_state.tray = tray
 
-    signal_manager = None if new_unmanaged else SignalManager(new_number, new_host, new_port)
+    signal_manager = None if new_unmanaged else SignalManager(new_host, new_port)
 
     # --- Tray callbacks use AppState lifecycle helpers ---
     if tray is not None:

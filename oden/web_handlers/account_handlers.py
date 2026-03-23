@@ -26,58 +26,6 @@ logger = logging.getLogger(__name__)
 _finish_link_task: asyncio.Task | None = None
 
 
-async def _jsonrpc_call(
-    method: str,
-    params: dict | None = None,
-    timeout: float = 10.0,
-) -> dict | None:
-    """Send a JSON-RPC request to signal-cli and await the response.
-
-    Returns the parsed response dict, or None on timeout/error.
-    """
-    app_state = get_app_state()
-    if not app_state.writer or not app_state.reader:
-        return None
-
-    request_id = app_state.get_next_request_id()
-    request = {
-        "jsonrpc": "2.0",
-        "method": method,
-        "id": request_id,
-    }
-    if params:
-        request["params"] = params
-
-    try:
-        app_state.writer.write((json.dumps(request) + "\n").encode("utf-8"))
-        await app_state.writer.drain()
-
-        # Read lines until we find our response (by matching request_id)
-        deadline = asyncio.get_event_loop().time() + timeout
-        while True:
-            remaining = deadline - asyncio.get_event_loop().time()
-            if remaining <= 0:
-                logger.warning(f"Timeout waiting for {method} response")
-                return None
-
-            line = await asyncio.wait_for(app_state.reader.readline(), timeout=remaining)
-            if not line:
-                return None
-
-            data = json.loads(line.decode("utf-8").strip())
-            if isinstance(data, dict) and data.get("id") == request_id:
-                return data
-
-            # Not our response — it's a notification or another response.
-            # Re-dispatch receive notifications so messages aren't lost.
-            if data.get("method") == "receive":
-                logger.debug("Re-queued receive notification during %s call", method)
-
-    except (asyncio.TimeoutError, json.JSONDecodeError, OSError) as e:
-        logger.error(f"Error in JSON-RPC call {method}: {e}")
-        return None
-
-
 async def accounts_list_handler(request: web.Request) -> web.Response:
     """List all signal-cli accounts and mark the active one."""
     app_state = get_app_state()
@@ -87,7 +35,7 @@ async def accounts_list_handler(request: web.Request) -> web.Response:
 
     # Try JSON-RPC listAccounts first (works when connected to daemon)
     if app_state.writer:
-        response = await _jsonrpc_call("listAccounts")
+        response = await app_state.send_jsonrpc("listAccounts")
         if response and "result" in response:
             for acc in response["result"]:
                 number = acc.get("number") or acc
@@ -163,7 +111,7 @@ async def accounts_link_handler(request: web.Request) -> web.Response:
     app_state.link_error = None
 
     # Call startLink via JSON-RPC (multi-account command, no account param)
-    response = await _jsonrpc_call("startLink", timeout=30.0)
+    response = await app_state.send_jsonrpc("startLink", timeout=30.0)
     if not response or "result" not in response:
         error_msg = "Kunde inte starta länkning"
         if response and "error" in response:
@@ -219,7 +167,7 @@ async def _finish_link_background(device_link_uri: str, device_name: str) -> Non
     app_state = get_app_state()
     try:
         # finishLink can take a long time (user needs to scan QR code)
-        response = await _jsonrpc_call(
+        response = await app_state.send_jsonrpc(
             "finishLink",
             params={"deviceLinkUri": device_link_uri, "deviceName": device_name},
             timeout=120.0,
@@ -261,6 +209,25 @@ async def accounts_link_status_handler(request: web.Request) -> web.Response:
     )
 
 
+async def accounts_link_cancel_handler(request: web.Request) -> web.Response:
+    """Cancel an ongoing account linking process."""
+    global _finish_link_task
+
+    app_state = get_app_state()
+
+    if _finish_link_task and not _finish_link_task.done():
+        _finish_link_task.cancel()
+        _finish_link_task = None
+
+    app_state.link_status = "idle"
+    app_state.link_uri = None
+    app_state.linked_number = None
+    app_state.link_error = None
+
+    logger.info("Account link cancelled by user")
+    return web.json_response({"success": True})
+
+
 async def accounts_activate_handler(request: web.Request) -> web.Response:
     """Set a specific account as the active account."""
     try:
@@ -276,6 +243,10 @@ async def accounts_activate_handler(request: web.Request) -> web.Response:
         # Persist to config_db and reload
         set_config_value(CONFIG_DB, "signal_number", number)
         reload_config()
+
+        # Clear cached groups so they will be refreshed for the newly active account
+        app_state = get_app_state()
+        app_state.groups = []
 
         logger.info(f"Active account changed to: {number}")
         return web.json_response(
@@ -316,7 +287,7 @@ async def accounts_delete_handler(request: web.Request) -> web.Response:
             status=503,
         )
 
-    response = await _jsonrpc_call(
+    response = await app_state.send_jsonrpc(
         "deleteLocalAccountData",
         params={"account": number},
         timeout=15.0,
@@ -391,7 +362,18 @@ async def accounts_force_delete_handler(request: web.Request) -> web.Response:
         # Delete the account data directory
         account_path = account_entry.get("path")
         if account_path:
-            account_dir = SIGNAL_DATA_PATH / "data" / account_path
+            base_data_dir = (SIGNAL_DATA_PATH / "data").resolve()
+            account_dir = (SIGNAL_DATA_PATH / "data" / account_path).resolve()
+
+            if not account_dir.is_relative_to(base_data_dir):
+                logger.error(
+                    f"Refusing to delete account directory outside base path: {account_dir} (base: {base_data_dir})"
+                )
+                return web.json_response(
+                    {"success": False, "error": "Ogiltig kontosökväg"},
+                    status=400,
+                )
+
             if account_dir.exists() and account_dir.is_dir():
                 shutil.rmtree(account_dir)
                 logger.info(f"Deleted account directory: {account_dir}")
