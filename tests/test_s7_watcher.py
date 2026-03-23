@@ -4,10 +4,10 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from oden.s7_watcher import (
     _auto_detect_account,
-    main as s7_main,
+    subscribe_and_listen,
 )
 from oden.s7_watcher import (
-    subscribe_and_listen,
+    main as s7_main,
 )
 from oden.signal_manager import SignalManager, is_signal_cli_running
 
@@ -335,13 +335,13 @@ class TestAutoDetectAccount(unittest.IsolatedAsyncioTestCase):
     async def test_valid_configured_number_no_change(self):
         """When configured number matches an available account, no config change."""
         app_state = AsyncMock()
-        app_state.send_jsonrpc = AsyncMock(
-            return_value={"result": [{"number": "+46701234567"}]}
-        )
+        app_state.send_jsonrpc = AsyncMock(return_value={"result": [{"number": "+46701234567"}]})
 
-        with patch("oden.config.SIGNAL_NUMBER", "+46701234567"), \
-             patch("oden.config_db.set_config_value") as mock_set, \
-             patch("oden.config.reload_config") as mock_reload:
+        with (
+            patch("oden.config.SIGNAL_NUMBER", "+46701234567"),
+            patch("oden.config_db.set_config_value") as mock_set,
+            patch("oden.config.reload_config") as mock_reload,
+        ):
             await _auto_detect_account(app_state)
 
         mock_set.assert_not_called()
@@ -350,13 +350,13 @@ class TestAutoDetectAccount(unittest.IsolatedAsyncioTestCase):
     async def test_invalid_number_single_account_auto_selects(self):
         """When configured number is invalid and one account exists, auto-select it."""
         app_state = AsyncMock()
-        app_state.send_jsonrpc = AsyncMock(
-            return_value={"result": [{"number": "+46709999999"}]}
-        )
+        app_state.send_jsonrpc = AsyncMock(return_value={"result": [{"number": "+46709999999"}]})
 
-        with patch("oden.config.SIGNAL_NUMBER", "+46700000000"), \
-             patch("oden.config_db.set_config_value") as mock_set, \
-             patch("oden.config.reload_config") as mock_reload:
+        with (
+            patch("oden.config.SIGNAL_NUMBER", "+46700000000"),
+            patch("oden.config_db.set_config_value") as mock_set,
+            patch("oden.config.reload_config") as mock_reload,
+        ):
             await _auto_detect_account(app_state)
 
         mock_set.assert_called_once()
@@ -371,12 +371,14 @@ class TestAutoDetectAccount(unittest.IsolatedAsyncioTestCase):
             return_value={"result": [{"number": "+46701111111"}, {"number": "+46702222222"}]}
         )
 
-        with patch("oden.config.SIGNAL_NUMBER", "+46700000000"), \
-             patch("oden.config.WEB_ENABLED", True), \
-             patch("oden.config_db.set_config_value") as mock_set, \
-             patch("oden.config.reload_config") as mock_reload:
-            with self.assertLogs("oden.s7_watcher", level="WARNING") as log:
-                await _auto_detect_account(app_state)
+        with (
+            patch("oden.config.SIGNAL_NUMBER", "+46700000000"),
+            patch("oden.config.WEB_ENABLED", True),
+            patch("oden.config_db.set_config_value") as mock_set,
+            patch("oden.config.reload_config") as mock_reload,
+            self.assertLogs("oden.s7_watcher", level="WARNING") as log,
+        ):
+            await _auto_detect_account(app_state)
 
         mock_set.assert_not_called()
         mock_reload.assert_not_called()
@@ -385,13 +387,13 @@ class TestAutoDetectAccount(unittest.IsolatedAsyncioTestCase):
     async def test_string_entries_in_list_accounts(self):
         """When listAccounts returns plain strings instead of dicts."""
         app_state = AsyncMock()
-        app_state.send_jsonrpc = AsyncMock(
-            return_value={"result": ["+46709999999"]}
-        )
+        app_state.send_jsonrpc = AsyncMock(return_value={"result": ["+46709999999"]})
 
-        with patch("oden.config.SIGNAL_NUMBER", "+46700000000"), \
-             patch("oden.config_db.set_config_value") as mock_set, \
-             patch("oden.config.reload_config"):
+        with (
+            patch("oden.config.SIGNAL_NUMBER", "+46700000000"),
+            patch("oden.config_db.set_config_value") as mock_set,
+            patch("oden.config.reload_config"),
+        ):
             await _auto_detect_account(app_state)
 
         mock_set.assert_called_once()
@@ -400,12 +402,9 @@ class TestAutoDetectAccount(unittest.IsolatedAsyncioTestCase):
     async def test_no_accounts_available(self):
         """When listAccounts returns empty list, do nothing."""
         app_state = AsyncMock()
-        app_state.send_jsonrpc = AsyncMock(
-            return_value={"result": []}
-        )
+        app_state.send_jsonrpc = AsyncMock(return_value={"result": []})
 
-        with patch("oden.config.SIGNAL_NUMBER", "+46700000000"), \
-             patch("oden.config_db.set_config_value") as mock_set:
+        with patch("oden.config.SIGNAL_NUMBER", "+46700000000"), patch("oden.config_db.set_config_value") as mock_set:
             await _auto_detect_account(app_state)
 
         mock_set.assert_not_called()
@@ -417,11 +416,13 @@ class TestAutoDetectAccount(unittest.IsolatedAsyncioTestCase):
             return_value={"result": [{"number": "+46701111111"}, {"number": "+46702222222"}]}
         )
 
-        with patch("oden.config.SIGNAL_NUMBER", "+46700000000"), \
-             patch("oden.config.WEB_ENABLED", False), \
-             patch("oden.config_db.set_config_value"):
-            with self.assertLogs("oden.s7_watcher", level="WARNING") as log:
-                await _auto_detect_account(app_state)
+        with (
+            patch("oden.config.SIGNAL_NUMBER", "+46700000000"),
+            patch("oden.config.WEB_ENABLED", False),
+            patch("oden.config_db.set_config_value"),
+            self.assertLogs("oden.s7_watcher", level="WARNING") as log,
+        ):
+            await _auto_detect_account(app_state)
 
         self.assertTrue(any("WEB_ENABLED" in msg for msg in log.output))
 

@@ -275,10 +275,7 @@ async def _auto_detect_account(app_state: object) -> None:
 
         available = []
         for acc in response["result"]:
-            if isinstance(acc, dict):
-                number = acc.get("number")
-            else:
-                number = acc
+            number = acc.get("number") if isinstance(acc, dict) else acc
             if isinstance(number, str):
                 available.append(number)
 
