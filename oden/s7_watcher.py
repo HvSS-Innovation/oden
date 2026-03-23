@@ -256,6 +256,53 @@ async def _reader_loop(reader: asyncio.StreamReader, app_state: object) -> None:
         app_state.dispatch_line(data)
 
 
+async def _auto_detect_account(app_state: object) -> None:
+    """Auto-detect and activate a signal-cli account if the configured one is invalid.
+
+    Queries listAccounts via JSON-RPC. If the configured SIGNAL_NUMBER is not
+    among the available accounts:
+    - If exactly one account exists, activate it automatically.
+    - If multiple accounts exist, log a warning so the user can choose via the GUI.
+    """
+    from oden import config as cfg
+    from oden.config import CONFIG_DB, reload_config
+    from oden.config_db import set_config_value
+
+    try:
+        response = await app_state.send_jsonrpc("listAccounts", timeout=10.0)
+        if not response or "result" not in response:
+            return
+
+        available = []
+        for acc in response["result"]:
+            number = acc.get("number") or acc
+            if isinstance(number, str):
+                available.append(number)
+
+        if not available:
+            return
+
+        # Current config is valid — nothing to do
+        if cfg.SIGNAL_NUMBER in available:
+            return
+
+        if len(available) == 1:
+            chosen = available[0]
+            logger.info(
+                f"Konfigurerat nummer ({cfg.SIGNAL_NUMBER}) finns inte bland tillgängliga konton. "
+                f"Auto-väljer enda tillgängliga konto: {chosen}"
+            )
+            set_config_value(CONFIG_DB, "signal_number", chosen)
+            reload_config()
+        else:
+            logger.warning(
+                f"Konfigurerat nummer ({cfg.SIGNAL_NUMBER}) finns inte bland tillgängliga konton: "
+                f"{', '.join(available)}. Välj rätt konto via Signal-konton i webbgränssnittet."
+            )
+    except Exception as e:
+        logger.warning(f"Kunde inte auto-detektera konto: {e}")
+
+
 async def subscribe_and_listen(host: str, port: int) -> None:
     """Connects to signal-cli via TCP socket, subscribes to messages, and processes them.
 
@@ -284,6 +331,9 @@ async def subscribe_and_listen(host: str, port: int) -> None:
         # Start the reader/dispatcher loop as a background task so that
         # RPC responses are consumed while we issue startup calls.
         reader_task = asyncio.create_task(_reader_loop(reader, app_state))
+
+        # Auto-detect account if the configured number is invalid
+        await _auto_detect_account(app_state)
 
         await update_profile(writer, DISPLAY_NAME)
         groups = await log_groups(writer)
