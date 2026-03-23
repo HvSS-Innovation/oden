@@ -1,0 +1,220 @@
+// accounts.js — Depends on: shared.js (getApiToken, escapeHtml, showConfigMessage)
+//
+// Signal account management: list, link (add), activate, delete, force-delete.
+
+let linkPollInterval = null;
+
+async function loadAccounts() {
+    const container = document.getElementById('accounts-list');
+    const warning = document.getElementById('accounts-warning');
+
+    try {
+        const response = await fetch('/api/accounts');
+        const data = await response.json();
+
+        const accounts = data.accounts || [];
+        const activeValid = data.active_valid;
+
+        // Show warning if active account is invalid
+        if (!activeValid && data.active_number) {
+            warning.style.display = 'block';
+            document.getElementById('accounts-warning-text').textContent =
+                'Det konfigurerade kontot (' + escapeHtml(data.active_number) + ') finns inte bland de tillgängliga kontona. Välj ett giltigt konto eller lägg till ett nytt.';
+        } else {
+            warning.style.display = 'none';
+        }
+
+        if (accounts.length === 0) {
+            container.innerHTML = '<div class="empty-state">Inga konton hittades. Klicka "Lägg till konto" för att länka ett Signal-konto.</div>';
+            return;
+        }
+
+        let html = '';
+        for (const acc of accounts) {
+            const num = escapeHtml(acc.number);
+            const isActive = acc.active;
+
+            html += '<div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 15px; border: 1px solid ' + (isActive ? '#2e7d32' : '#333') + '; border-radius: 8px; margin-bottom: 8px; background: ' + (isActive ? '#1a3a1a' : '#16213e') + ';">';
+            html += '<div>';
+            html += '<strong style="font-size: 1.05em;">' + num + '</strong>';
+            if (isActive) {
+                html += ' <span style="color: #4caf50; font-size: 0.9em; margin-left: 8px;">● Aktivt konto</span>';
+            }
+            html += '</div>';
+            html += '<div style="display: flex; gap: 8px;">';
+
+            if (!isActive) {
+                html += '<button class="btn btn-primary" style="padding: 5px 12px; font-size: 0.85em;" onclick="activateAccount(\'' + num + '\')">Använd</button>';
+                html += '<button class="btn btn-secondary" style="padding: 5px 12px; font-size: 0.85em;" onclick="deleteAccount(\'' + num + '\')">Radera</button>';
+                html += '<button class="btn btn-secondary" style="padding: 5px 12px; font-size: 0.85em; color: #ff5252;" onclick="forceDeleteAccount(\'' + num + '\')">Tvinga radering</button>';
+            } else {
+                html += '<span style="color: #888; font-size: 0.85em; padding: 5px 0;">Kan inte raderas medan aktivt</span>';
+            }
+
+            html += '</div></div>';
+        }
+        container.innerHTML = html;
+
+    } catch (error) {
+        container.innerHTML = '<div class="empty-state" style="color: #ff5252;">Kunde inte ladda konton: ' + escapeHtml(error.message) + '</div>';
+    }
+}
+
+async function activateAccount(number) {
+    if (!confirm('Vill du byta aktivt konto till ' + number + '?\n\nMeddelanden kommer att behandlas för det nya kontot.')) {
+        return;
+    }
+
+    try {
+        const token = await getApiToken();
+        const response = await fetch('/api/accounts/activate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            body: JSON.stringify({ number })
+        });
+        const result = await response.json();
+
+        if (response.ok && result.success) {
+            showConfigMessage('Aktivt konto ändrat till ' + number, 'success');
+            await loadAccounts();
+        } else {
+            alert(result.error || 'Något gick fel');
+        }
+    } catch (error) {
+        alert('Nätverksfel: ' + error.message);
+    }
+}
+
+async function deleteAccount(number) {
+    if (!confirm('Vill du radera alla lokala data för kontot ' + number + '?\n\nDetta tar bort kontodata från signal-cli men avregistrerar inte kontot från Signals servrar.')) {
+        return;
+    }
+
+    try {
+        const token = await getApiToken();
+        const response = await fetch('/api/accounts/' + encodeURIComponent(number), {
+            method: 'DELETE',
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        const result = await response.json();
+
+        if (response.ok && result.success) {
+            showConfigMessage(result.message, 'success');
+            await loadAccounts();
+        } else {
+            alert(result.error || 'Något gick fel');
+        }
+    } catch (error) {
+        alert('Nätverksfel: ' + error.message);
+    }
+}
+
+async function forceDeleteAccount(number) {
+    if (!confirm('⚠️ VARNING: Tvångsradering!\n\nDetta raderar kontodatan direkt från filsystemet.\nAnvänd detta bara om kontot är korrupt och inte kan raderas normalt.\n\nVill du fortsätta med tvångsradering av ' + number + '?')) {
+        return;
+    }
+
+    try {
+        const token = await getApiToken();
+        const response = await fetch('/api/accounts/' + encodeURIComponent(number) + '/force', {
+            method: 'DELETE',
+            headers: { 'Authorization': 'Bearer ' + token }
+        });
+        const result = await response.json();
+
+        if (response.ok && result.success) {
+            showConfigMessage(result.message, 'success');
+            await loadAccounts();
+        } else {
+            alert(result.error || 'Något gick fel');
+        }
+    } catch (error) {
+        alert('Nätverksfel: ' + error.message);
+    }
+}
+
+async function startAccountLink() {
+    const modal = document.getElementById('account-link-modal');
+    const qrContainer = document.getElementById('link-qr-container');
+    const statusText = document.getElementById('link-status-text');
+    const successDiv = document.getElementById('link-success');
+    const cancelBtn = document.getElementById('link-cancel-btn');
+    const doneBtn = document.getElementById('link-done-btn');
+
+    // Show modal
+    modal.style.display = 'flex';
+    qrContainer.innerHTML = '<div class="empty-state" style="color: #333;">Genererar QR-kod...</div>';
+    statusText.textContent = 'Ansluter till signal-cli...';
+    successDiv.style.display = 'none';
+    cancelBtn.style.display = '';
+    doneBtn.style.display = 'none';
+
+    try {
+        const token = await getApiToken();
+        const response = await fetch('/api/accounts/link', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            body: JSON.stringify({ device_name: 'Oden' })
+        });
+        const result = await response.json();
+
+        if (response.ok && result.success) {
+            qrContainer.innerHTML = result.qr_svg;
+            statusText.textContent = 'Skanna QR-koden med Signal-appen på din telefon';
+
+            // Start polling for link completion
+            linkPollInterval = setInterval(pollLinkStatus, 2000);
+        } else {
+            qrContainer.innerHTML = '<div class="empty-state" style="color: #c00;">Fel!</div>';
+            statusText.textContent = result.error || 'Kunde inte starta länkning';
+        }
+    } catch (error) {
+        qrContainer.innerHTML = '<div class="empty-state" style="color: #c00;">Nätverksfel</div>';
+        statusText.textContent = error.message;
+    }
+}
+
+async function pollLinkStatus() {
+    try {
+        const response = await fetch('/api/accounts/link-status');
+        const data = await response.json();
+
+        if (data.status === 'linked') {
+            clearInterval(linkPollInterval);
+            linkPollInterval = null;
+
+            const statusText = document.getElementById('link-status-text');
+            const successDiv = document.getElementById('link-success');
+            const cancelBtn = document.getElementById('link-cancel-btn');
+            const doneBtn = document.getElementById('link-done-btn');
+
+            statusText.style.display = 'none';
+            successDiv.style.display = 'block';
+            document.getElementById('link-success-number').textContent = ' ' + data.linked_number;
+            cancelBtn.style.display = 'none';
+            doneBtn.style.display = '';
+        } else if (data.status === 'error') {
+            clearInterval(linkPollInterval);
+            linkPollInterval = null;
+
+            document.getElementById('link-status-text').textContent = data.error || 'Länkning misslyckades';
+            document.getElementById('link-qr-container').innerHTML = '<div class="empty-state" style="color: #c00;">Misslyckades</div>';
+        }
+    } catch (error) {
+        // Network error during poll, keep trying
+        console.error('Poll error:', error);
+    }
+}
+
+function cancelAccountLink() {
+    if (linkPollInterval) {
+        clearInterval(linkPollInterval);
+        linkPollInterval = null;
+    }
+    document.getElementById('account-link-modal').style.display = 'none';
+}
+
+function finishAccountLink() {
+    document.getElementById('account-link-modal').style.display = 'none';
+    loadAccounts();
+}

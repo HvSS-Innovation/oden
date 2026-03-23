@@ -124,8 +124,6 @@ class SignalManager:
 
         command = [
             self.executable,
-            "-u",
-            self.number,
             "daemon",
             "--tcp",
             f"{self.host}:{self.port}",

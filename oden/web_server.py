@@ -18,6 +18,12 @@ from oden.config import WEB_ACCESS_LOG, WEB_HOST
 from oden.log_buffer import get_log_buffer
 from oden.web_handlers import (
     accept_invitation_handler,
+    accounts_activate_handler,
+    accounts_delete_handler,
+    accounts_force_delete_handler,
+    accounts_link_handler,
+    accounts_link_status_handler,
+    accounts_list_handler,
     config_export_handler,
     config_file_save_handler,
     config_handler,
@@ -70,12 +76,15 @@ PROTECTED_ENDPOINTS = {
     "/api/invitations/decline",  # POST - decline group invitation
     "/api/config/export",  # GET - export config as INI
     "/api/setup/reset",  # DELETE - re-run setup
+    "/api/accounts/link",  # POST - link new account
+    "/api/accounts/activate",  # POST - switch active account
 }
 
 # Endpoints that require auth and use path parameters (checked with startswith)
 PROTECTED_PREFIXES = {
     "/api/responses/",  # All response modification endpoints
     "/api/templates/",  # All template modification endpoints
+    "/api/accounts/",  # All account modification endpoints
 }
 
 
@@ -217,6 +226,14 @@ def create_app(setup_mode: bool = False) -> web.Application:
         app.router.add_get("/api/config/export", config_export_handler)
         app.router.add_delete("/api/config/reset", config_reset_handler)
         app.router.add_post("/api/shutdown", shutdown_handler)
+
+        # Account management routes
+        app.router.add_get("/api/accounts", accounts_list_handler)
+        app.router.add_post("/api/accounts/link", accounts_link_handler)
+        app.router.add_get("/api/accounts/link-status", accounts_link_status_handler)
+        app.router.add_post("/api/accounts/activate", accounts_activate_handler)
+        app.router.add_delete("/api/accounts/{number}", accounts_delete_handler)
+        app.router.add_delete("/api/accounts/{number}/force", accounts_force_delete_handler)
 
         # Response (auto-reply) routes
         app.router.add_get("/api/responses", responses_list_handler)

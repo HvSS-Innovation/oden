@@ -5,6 +5,14 @@ This package contains the HTTP request handlers for the web interface,
 organized by functionality.
 """
 
+from oden.web_handlers.account_handlers import (
+    accounts_activate_handler,
+    accounts_delete_handler,
+    accounts_force_delete_handler,
+    accounts_link_handler,
+    accounts_link_status_handler,
+    accounts_list_handler,
+)
 from oden.web_handlers.config_handlers import (
     config_export_handler,
     config_file_get_handler,
@@ -60,6 +68,13 @@ __all__ = [
     "config_save_handler",
     "config_export_handler",
     "config_reset_handler",
+    # Account handlers
+    "accounts_list_handler",
+    "accounts_link_handler",
+    "accounts_link_status_handler",
+    "accounts_activate_handler",
+    "accounts_delete_handler",
+    "accounts_force_delete_handler",
     # Group handlers
     "groups_handler",
     "toggle_ignore_group_handler",

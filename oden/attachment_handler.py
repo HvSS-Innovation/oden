@@ -25,7 +25,14 @@ async def _get_attachment_data(
     Returns base64 encoded data if successful, otherwise None.
     """
     request_id = datetime.datetime.now().microsecond  # Simple unique ID for the request
-    json_request = {"jsonrpc": "2.0", "method": "getAttachment", "params": {"id": attachment_id}, "id": request_id}
+    from oden import config as cfg
+
+    json_request = {
+        "jsonrpc": "2.0",
+        "method": "getAttachment",
+        "params": {"account": cfg.SIGNAL_NUMBER, "id": attachment_id},
+        "id": request_id,
+    }
     request_str = json.dumps(json_request) + "\n"
 
     try:

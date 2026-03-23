@@ -1,0 +1,416 @@
+"""
+Account management handlers for Oden web GUI.
+
+Provides endpoints for listing, linking (adding), activating, and deleting
+Signal accounts managed by signal-cli in multi-account daemon mode.
+"""
+
+import asyncio
+import io
+import json
+import logging
+import shutil
+
+import qrcode
+import qrcode.image.svg
+from aiohttp import web
+
+from oden import config as cfg
+from oden.app_state import get_app_state
+from oden.config import CONFIG_DB, SIGNAL_DATA_PATH, reload_config
+from oden.config_db import set_config_value
+
+logger = logging.getLogger(__name__)
+
+# Background task for finishLink polling
+_finish_link_task: asyncio.Task | None = None
+
+
+async def _jsonrpc_call(
+    method: str,
+    params: dict | None = None,
+    timeout: float = 10.0,
+) -> dict | None:
+    """Send a JSON-RPC request to signal-cli and await the response.
+
+    Returns the parsed response dict, or None on timeout/error.
+    """
+    app_state = get_app_state()
+    if not app_state.writer or not app_state.reader:
+        return None
+
+    request_id = app_state.get_next_request_id()
+    request = {
+        "jsonrpc": "2.0",
+        "method": method,
+        "id": request_id,
+    }
+    if params:
+        request["params"] = params
+
+    try:
+        app_state.writer.write((json.dumps(request) + "\n").encode("utf-8"))
+        await app_state.writer.drain()
+
+        # Read lines until we find our response (by matching request_id)
+        deadline = asyncio.get_event_loop().time() + timeout
+        while True:
+            remaining = deadline - asyncio.get_event_loop().time()
+            if remaining <= 0:
+                logger.warning(f"Timeout waiting for {method} response")
+                return None
+
+            line = await asyncio.wait_for(app_state.reader.readline(), timeout=remaining)
+            if not line:
+                return None
+
+            data = json.loads(line.decode("utf-8").strip())
+            if isinstance(data, dict) and data.get("id") == request_id:
+                return data
+
+            # Not our response — it's a notification or another response.
+            # Re-dispatch receive notifications so messages aren't lost.
+            if data.get("method") == "receive":
+                logger.debug("Re-queued receive notification during %s call", method)
+
+    except (asyncio.TimeoutError, json.JSONDecodeError, OSError) as e:
+        logger.error(f"Error in JSON-RPC call {method}: {e}")
+        return None
+
+
+async def accounts_list_handler(request: web.Request) -> web.Response:
+    """List all signal-cli accounts and mark the active one."""
+    app_state = get_app_state()
+
+    accounts = []
+    active_number = cfg.SIGNAL_NUMBER
+
+    # Try JSON-RPC listAccounts first (works when connected to daemon)
+    if app_state.writer:
+        response = await _jsonrpc_call("listAccounts")
+        if response and "result" in response:
+            for acc in response["result"]:
+                number = acc.get("number") or acc
+                if isinstance(number, str):
+                    accounts.append(
+                        {
+                            "number": number,
+                            "active": number == active_number,
+                        }
+                    )
+
+    # Fallback: read accounts.json from disk
+    if not accounts:
+        accounts = _read_accounts_from_disk(active_number)
+
+    # Check if active account is valid
+    active_valid = any(a["active"] for a in accounts)
+
+    return web.json_response(
+        {
+            "accounts": accounts,
+            "active_number": active_number,
+            "active_valid": active_valid,
+        }
+    )
+
+
+def _read_accounts_from_disk(active_number: str) -> list[dict]:
+    """Read accounts from signal-cli's accounts.json file."""
+    accounts = []
+    accounts_file = SIGNAL_DATA_PATH / "data" / "accounts.json"
+    if accounts_file.exists():
+        try:
+            data = json.loads(accounts_file.read_text())
+            for acc in data.get("accounts", []):
+                number = acc.get("number")
+                if number:
+                    accounts.append(
+                        {
+                            "number": number,
+                            "active": number == active_number,
+                            "path": acc.get("path"),
+                        }
+                    )
+        except (json.JSONDecodeError, OSError) as e:
+            logger.error(f"Error reading accounts.json: {e}")
+    return accounts
+
+
+async def accounts_link_handler(request: web.Request) -> web.Response:
+    """Start linking a new Signal account via QR code.
+
+    Uses JSON-RPC startLink (multi-account command) and generates a QR code SVG.
+    Then starts a background task to call finishLink.
+    """
+    global _finish_link_task
+
+    app_state = get_app_state()
+    if not app_state.writer:
+        return web.json_response(
+            {"success": False, "error": "Inte ansluten till signal-cli"},
+            status=503,
+        )
+
+    # Cancel any existing link task
+    if _finish_link_task and not _finish_link_task.done():
+        _finish_link_task.cancel()
+
+    # Reset link state
+    app_state.link_status = "waiting"
+    app_state.link_uri = None
+    app_state.linked_number = None
+    app_state.link_error = None
+
+    # Call startLink via JSON-RPC (multi-account command, no account param)
+    response = await _jsonrpc_call("startLink", timeout=30.0)
+    if not response or "result" not in response:
+        error_msg = "Kunde inte starta länkning"
+        if response and "error" in response:
+            error_msg = response["error"].get("message", error_msg)
+        app_state.link_status = "error"
+        app_state.link_error = error_msg
+        return web.json_response(
+            {"success": False, "error": error_msg},
+            status=500,
+        )
+
+    device_link_uri = response["result"].get("deviceLinkUri")
+    if not device_link_uri:
+        app_state.link_status = "error"
+        app_state.link_error = "Ingen länk-URI mottagen"
+        return web.json_response(
+            {"success": False, "error": "Ingen länk-URI mottagen"},
+            status=500,
+        )
+
+    app_state.link_uri = device_link_uri
+
+    # Generate QR code SVG
+    qr = qrcode.QRCode(version=1, box_size=10, border=2)
+    qr.add_data(device_link_uri)
+    qr.make(fit=True)
+    img = qr.make_image(image_factory=qrcode.image.svg.SvgPathImage)
+    svg_buffer = io.BytesIO()
+    img.save(svg_buffer)
+    qr_svg = svg_buffer.getvalue().decode("utf-8")
+
+    # Start background task for finishLink
+    try:
+        data = await request.json()
+        device_name = data.get("device_name", "Oden")
+    except (json.JSONDecodeError, TypeError):
+        device_name = "Oden"
+
+    _finish_link_task = asyncio.create_task(_finish_link_background(device_link_uri, device_name))
+
+    return web.json_response(
+        {
+            "success": True,
+            "qr_svg": qr_svg,
+            "link_uri": device_link_uri,
+            "status": "waiting",
+        }
+    )
+
+
+async def _finish_link_background(device_link_uri: str, device_name: str) -> None:
+    """Background task: call finishLink and update app_state with the result."""
+    app_state = get_app_state()
+    try:
+        # finishLink can take a long time (user needs to scan QR code)
+        response = await _jsonrpc_call(
+            "finishLink",
+            params={"deviceLinkUri": device_link_uri, "deviceName": device_name},
+            timeout=120.0,
+        )
+
+        if response and "result" in response:
+            number = response["result"].get("number")
+            if number:
+                app_state.linked_number = number
+                app_state.link_status = "linked"
+                logger.info(f"Successfully linked account: {number}")
+                return
+
+        error_msg = "Länkning misslyckades"
+        if response and "error" in response:
+            error_msg = response["error"].get("message", error_msg)
+        app_state.link_status = "error"
+        app_state.link_error = error_msg
+        logger.error(f"Link failed: {error_msg}")
+
+    except asyncio.CancelledError:
+        app_state.link_status = "idle"
+        logger.info("Link task cancelled")
+    except Exception as e:
+        app_state.link_status = "error"
+        app_state.link_error = str(e)
+        logger.error(f"Error in finishLink: {e}")
+
+
+async def accounts_link_status_handler(request: web.Request) -> web.Response:
+    """Poll the status of an ongoing account linking process."""
+    app_state = get_app_state()
+    return web.json_response(
+        {
+            "status": app_state.link_status,
+            "linked_number": app_state.linked_number,
+            "error": app_state.link_error,
+        }
+    )
+
+
+async def accounts_activate_handler(request: web.Request) -> web.Response:
+    """Set a specific account as the active account."""
+    try:
+        data = await request.json()
+        number = data.get("number", "").strip()
+
+        if not number:
+            return web.json_response(
+                {"success": False, "error": "Inget nummer angivet"},
+                status=400,
+            )
+
+        # Persist to config_db and reload
+        set_config_value(CONFIG_DB, "signal_number", number)
+        reload_config()
+
+        logger.info(f"Active account changed to: {number}")
+        return web.json_response(
+            {
+                "success": True,
+                "message": f"Aktivt konto ändrat till {number}",
+                "number": number,
+            }
+        )
+
+    except json.JSONDecodeError:
+        return web.json_response({"success": False, "error": "Ogiltig JSON"}, status=400)
+    except Exception as e:
+        logger.error(f"Error activating account: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+async def accounts_delete_handler(request: web.Request) -> web.Response:
+    """Delete a Signal account's local data via JSON-RPC deleteLocalAccountData."""
+    number = request.match_info.get("number", "").strip()
+    if not number:
+        return web.json_response(
+            {"success": False, "error": "Inget nummer angivet"},
+            status=400,
+        )
+
+    # Prevent deleting the active account without switching first
+    if number == cfg.SIGNAL_NUMBER:
+        return web.json_response(
+            {"success": False, "error": "Kan inte radera det aktiva kontot. Byt konto först."},
+            status=400,
+        )
+
+    app_state = get_app_state()
+    if not app_state.writer:
+        return web.json_response(
+            {"success": False, "error": "Inte ansluten till signal-cli"},
+            status=503,
+        )
+
+    response = await _jsonrpc_call(
+        "deleteLocalAccountData",
+        params={"account": number},
+        timeout=15.0,
+    )
+
+    if response and ("result" in response or response.get("id")):
+        if "error" in response:
+            error_msg = response["error"].get("message", "Okänt fel")
+            return web.json_response(
+                {"success": False, "error": error_msg},
+                status=500,
+            )
+        logger.info(f"Deleted local account data for: {number}")
+        return web.json_response(
+            {
+                "success": True,
+                "message": f"Kontodata för {number} har raderats",
+            }
+        )
+
+    return web.json_response(
+        {"success": False, "error": "Inget svar från signal-cli"},
+        status=500,
+    )
+
+
+async def accounts_force_delete_handler(request: web.Request) -> web.Response:
+    """Force-delete account data directly from the filesystem.
+
+    This is the fallback for corrupted accounts where JSON-RPC fails.
+    Removes the account directory and its entry from accounts.json.
+    """
+    number = request.match_info.get("number", "").strip()
+    if not number:
+        return web.json_response(
+            {"success": False, "error": "Inget nummer angivet"},
+            status=400,
+        )
+
+    if number == cfg.SIGNAL_NUMBER:
+        return web.json_response(
+            {"success": False, "error": "Kan inte radera det aktiva kontot. Byt konto först."},
+            status=400,
+        )
+
+    accounts_file = SIGNAL_DATA_PATH / "data" / "accounts.json"
+    if not accounts_file.exists():
+        return web.json_response(
+            {"success": False, "error": "accounts.json hittades inte"},
+            status=404,
+        )
+
+    try:
+        data = json.loads(accounts_file.read_text())
+        accounts = data.get("accounts", [])
+
+        # Find the account entry
+        account_entry = None
+        remaining = []
+        for acc in accounts:
+            if acc.get("number") == number:
+                account_entry = acc
+            else:
+                remaining.append(acc)
+
+        if not account_entry:
+            return web.json_response(
+                {"success": False, "error": f"Kontot {number} hittades inte"},
+                status=404,
+            )
+
+        # Delete the account data directory
+        account_path = account_entry.get("path")
+        if account_path:
+            account_dir = SIGNAL_DATA_PATH / "data" / account_path
+            if account_dir.exists() and account_dir.is_dir():
+                shutil.rmtree(account_dir)
+                logger.info(f"Deleted account directory: {account_dir}")
+
+        # Update accounts.json
+        data["accounts"] = remaining
+        accounts_file.write_text(json.dumps(data, indent=2))
+        logger.info(f"Removed {number} from accounts.json")
+
+        return web.json_response(
+            {
+                "success": True,
+                "message": f"Kontodata för {number} har tvångsraderats",
+            }
+        )
+
+    except (json.JSONDecodeError, OSError) as e:
+        logger.error(f"Error force-deleting account {number}: {e}")
+        return web.json_response(
+            {"success": False, "error": f"Fel vid radering: {e}"},
+            status=500,
+        )

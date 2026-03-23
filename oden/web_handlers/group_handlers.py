@@ -141,7 +141,7 @@ async def join_group_handler(request: web.Request) -> web.Response:
         json_request = {
             "jsonrpc": "2.0",
             "method": "joinGroup",
-            "params": {"uri": link},
+            "params": {"account": cfg.SIGNAL_NUMBER, "uri": link},
             "id": request_id,
         }
 
@@ -202,7 +202,7 @@ async def accept_invitation_handler(request: web.Request) -> web.Response:
         json_request = {
             "jsonrpc": "2.0",
             "method": "joinGroup",
-            "params": {"uri": invite_link},
+            "params": {"account": cfg.SIGNAL_NUMBER, "uri": invite_link},
             "id": request_id,
         }
 
@@ -245,7 +245,7 @@ async def decline_invitation_handler(request: web.Request) -> web.Response:
         json_request = {
             "jsonrpc": "2.0",
             "method": "quitGroup",
-            "params": {"groupId": group_id},
+            "params": {"account": cfg.SIGNAL_NUMBER, "groupId": group_id},
             "id": request_id,
         }
 

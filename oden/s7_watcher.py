@@ -114,7 +114,7 @@ async def send_startup_message(writer: asyncio.StreamWriter, groups: list[dict] 
             json_request = {
                 "jsonrpc": "2.0",
                 "method": "send",
-                "params": {"recipient": [cfg.SIGNAL_NUMBER], "message": message},
+                "params": {"account": cfg.SIGNAL_NUMBER, "recipient": [cfg.SIGNAL_NUMBER], "message": message},
                 "id": request_id,
             }
             logger.info(f"Sending startup message to {cfg.SIGNAL_NUMBER}...")
@@ -144,7 +144,7 @@ async def send_startup_message(writer: asyncio.StreamWriter, groups: list[dict] 
                 json_request = {
                     "jsonrpc": "2.0",
                     "method": "send",
-                    "params": {"groupId": group_id, "message": message},
+                    "params": {"account": cfg.SIGNAL_NUMBER, "groupId": group_id, "message": message},
                     "id": request_id,
                 }
                 writer.write((json.dumps(json_request) + "\n").encode("utf-8"))
@@ -172,6 +172,7 @@ async def log_groups(reader: asyncio.StreamReader, writer: asyncio.StreamWriter)
     json_request = {
         "jsonrpc": "2.0",
         "method": "listGroups",
+        "params": {"account": cfg.SIGNAL_NUMBER},
         "id": request_id,
     }
     request_str = json.dumps(json_request) + "\n"
@@ -222,6 +223,8 @@ async def log_groups(reader: asyncio.StreamReader, writer: asyncio.StreamWriter)
 
 async def update_profile(writer: asyncio.StreamWriter, display_name: str | None) -> None:
     """Sends a JSON-RPC request to update the profile name."""
+    from oden import config as cfg
+
     if not display_name:
         return
 
@@ -229,7 +232,7 @@ async def update_profile(writer: asyncio.StreamWriter, display_name: str | None)
     json_request = {
         "jsonrpc": "2.0",
         "method": "updateProfile",
-        "params": {"name": display_name},
+        "params": {"account": cfg.SIGNAL_NUMBER, "name": display_name},
         "id": request_id,
     }
     request_str = json.dumps(json_request) + "\n"
@@ -246,7 +249,13 @@ async def update_profile(writer: asyncio.StreamWriter, display_name: str | None)
 
 
 async def subscribe_and_listen(host: str, port: int) -> None:
-    """Connects to signal-cli via TCP socket, subscribes to messages, and processes them."""
+    """Connects to signal-cli via TCP socket, subscribes to messages, and processes them.
+
+    In multi-account daemon mode, messages include an 'account' field.
+    Only messages for the active account (cfg.SIGNAL_NUMBER) are processed.
+    """
+    from oden import config as cfg
+
     logger.info(f"Connecting to signal-cli at {host}:{port}...")
 
     reader = None
@@ -276,7 +285,19 @@ async def subscribe_and_listen(host: str, port: int) -> None:
             try:
                 data = json.loads(message_str)
                 if data.get("method") == "receive" and (params := data.get("params")):
-                    await process_message(params, reader, writer)
+                    # Multi-account mode: extract envelope from nested format
+                    # Format may be: {account, envelope} or {subscription, result: {account, envelope}}
+                    msg_data = params
+                    if "result" in params and isinstance(params["result"], dict):
+                        msg_data = params["result"]
+
+                    # Filter: only process messages for the active account
+                    msg_account = msg_data.get("account")
+                    if msg_account and msg_account != cfg.SIGNAL_NUMBER:
+                        logger.debug(f"Skipping message for non-active account: {msg_account}")
+                        continue
+
+                    await process_message(msg_data, reader, writer)
                 else:
                     # Log other responses if they are not the response to our updateProfile request
                     if not (isinstance(data, dict) and data.get("id", "").startswith("update-profile-")):
