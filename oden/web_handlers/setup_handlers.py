@@ -470,13 +470,13 @@ async def setup_save_config_handler(request: web.Request) -> web.Response:
         config_dict = {**existing, **setup_updates}
 
         save_config(config_dict)
-        logger.info("Setup complete. Config saved to %s", config_module.get_config_path())
+        logger.info("Setup complete. Config saved to %s", config_db_path)
 
         return web.json_response(
             {
                 "success": True,
                 "message": "Konfiguration sparad! Oden startar om...",
-                "config_path": str(config_module.get_config_path()),
+                "config_path": str(config_db_path),
             }
         )
 
