@@ -425,6 +425,8 @@ class TestSetupSaveConfigPreservesExisting(AioHTTPTestCase):
             old_config["signal_number"] = "+46701234567"
             old_config["vault_path"] = str(Path(tmpdir) / "old-vault")
             old_config["display_name"] = "OldName"
+            old_config["append_window_minutes"] = 90
+            old_config["plus_plus_enabled"] = True
             save_all_config(db_path, old_config)
 
             cfg._update_paths(oden_home)
@@ -446,9 +448,13 @@ class TestSetupSaveConfigPreservesExisting(AioHTTPTestCase):
             self.assertTrue(data["success"])
 
             result = get_all_config(db_path)
+            # Setup-managed keys should be updated
             self.assertEqual(result["vault_path"], str(new_vault))
             self.assertEqual(result["signal_number"], "+46709876543")
             self.assertEqual(result["display_name"], "NewName")
+            # Non-setup keys should be preserved from existing config
+            self.assertEqual(result["append_window_minutes"], 90)
+            self.assertTrue(result["plus_plus_enabled"])
 
 
 class TestSetupOdenHomeFullyConfigured(AioHTTPTestCase):
