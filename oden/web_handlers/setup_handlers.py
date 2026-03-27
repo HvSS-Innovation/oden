@@ -34,7 +34,7 @@ from oden.config import (
     setup_oden_home,
     soft_reset_config,
 )
-from oden.config_db import DEFAULT_CONFIG, get_all_config, save_all_config
+from oden.config_db import get_all_config
 from oden.path_utils import (
     is_filesystem_root,
     is_within_directory,
