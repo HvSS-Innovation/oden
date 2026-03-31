@@ -61,7 +61,7 @@ enbart SQLite-baserad konfiguration.
 - **Meddelandefiltrering**: Receive-loopen filtrerar meddelanden per aktivt konto
 - **Modulär kodbas**: Stora filer uppdelade — `signal_manager` → `signal_linker` + `signal_registrar`, `config_db` → `responses_db` + `groups_db`, `s7_watcher` → `signal_listener` + `log_utils`, `test_web_gui` → `test_web_api`/`crud`/`config`/`screenshots`
 - **GUI-refaktorering**: Handler-dekoratorer, CSS-variabler och Jinja2 template-includes för bättre underhåll
-- **Token-auth borttagen**: Förenklad autentisering med pointer file auto-recovery istället
+- **Token-auth borttagen**: HTTP-API:t är nu oautentiserat; skydda instansen genom att bara binda till `localhost` eller använda extern autentisering/reverse proxy. Pointer file auto-recovery är en ren setup-/config-förenkling, inte ett autentiseringsskydd
 - **Dokumentation**: Uppdaterad för att matcha aktuell kodimplementation, varning om API-exponering vid `WEB_HOST=0.0.0.0`
 - **Beroenden**: Uppgraderade GitHub Actions (docker/build-push-action v6 → v7 m.fl.)
 
