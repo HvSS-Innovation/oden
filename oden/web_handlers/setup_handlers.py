@@ -78,14 +78,20 @@ async def setup_status_handler(request: web.Request) -> web.Response:
     # Check configuration status
     configured, config_error = is_configured()
 
-    # If is_configured passes, also validate the signal number against accounts
+    # If is_configured passes, also validate the signal number against accounts.
+    # Reuse any accounts already fetched above to avoid duplicate disk I/O.
     if configured:
         from oden.config import validate_signal_number
 
-        _valid, _verr = validate_signal_number()
+        _valid, _verr, validated_accounts = validate_signal_number(
+            accounts=existing_accounts or None,
+        )
         if not _valid:
             configured = False
             config_error = _verr
+        # Merge discovered accounts so we never re-scan below
+        if validated_accounts and not existing_accounts:
+            existing_accounts = validated_accounts
 
     # Get current oden_home from pointer file
     current_oden_home = get_oden_home_path()
@@ -123,6 +129,8 @@ async def setup_status_handler(request: web.Request) -> web.Response:
 
     # When the configured number doesn't match any signal-cli account,
     # eagerly load accounts so the UI can show a selection immediately.
+    # (validate_signal_number already populated existing_accounts above,
+    # so this branch only fires if that didn't run.)
     if config_error == "invalid_account" and not existing_accounts:
         from oden.signal_manager import get_existing_accounts
 

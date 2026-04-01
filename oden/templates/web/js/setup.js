@@ -106,7 +106,12 @@ function goToStep(step) {
     currentStep = step;
 
     if (step === 2) {
-        loadExistingAccounts();
+        if (existingAccounts.length > 0) {
+            // Accounts already loaded from initial status response — skip extra fetch
+            showMethodSelection();
+        } else {
+            loadExistingAccounts();
+        }
     }
 
     if (step === 3) {

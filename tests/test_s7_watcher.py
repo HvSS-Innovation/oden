@@ -14,7 +14,7 @@ from oden.signal_manager import SignalManager, is_signal_cli_running
 class TestS7Watcher(unittest.IsolatedAsyncioTestCase):
     @patch("oden.s7_watcher._create_tray", return_value=None)
     @patch("oden.s7_watcher.is_configured", return_value=(True, None))
-    @patch("oden.config.validate_signal_number", return_value=(True, None))
+    @patch("oden.config.validate_signal_number", return_value=(True, None, []))
     @patch("oden.s7_watcher.WEB_ENABLED", False)
     @patch("oden.s7_watcher.UNMANAGED_SIGNAL_CLI", False)
     @patch("oden.s7_watcher.SignalManager")
@@ -41,7 +41,7 @@ class TestS7Watcher(unittest.IsolatedAsyncioTestCase):
 
     @patch("oden.s7_watcher._create_tray", return_value=None)
     @patch("oden.s7_watcher.is_configured", return_value=(True, None))
-    @patch("oden.config.validate_signal_number", return_value=(True, None))
+    @patch("oden.config.validate_signal_number", return_value=(True, None, []))
     @patch("oden.s7_watcher.WEB_ENABLED", False)
     @patch("oden.s7_watcher.UNMANAGED_SIGNAL_CLI", True)
     @patch("oden.s7_watcher.is_signal_cli_running", return_value=True)
@@ -62,7 +62,7 @@ class TestS7Watcher(unittest.IsolatedAsyncioTestCase):
 
     @patch("oden.s7_watcher._create_tray", return_value=None)
     @patch("oden.s7_watcher.is_configured", return_value=(True, None))
-    @patch("oden.config.validate_signal_number", return_value=(True, None))
+    @patch("oden.config.validate_signal_number", return_value=(True, None, []))
     @patch("oden.s7_watcher.WEB_ENABLED", False)
     @patch("oden.s7_watcher.UNMANAGED_SIGNAL_CLI", True)
     @patch("oden.s7_watcher.is_signal_cli_running", return_value=False)
