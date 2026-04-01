@@ -252,7 +252,7 @@ def main() -> None:
     if _is_configured:
         from oden.config import validate_signal_number
 
-        _is_valid, _validate_error = validate_signal_number()
+        _is_valid, _validate_error, _accts = validate_signal_number()
         if not _is_valid:
             _is_configured = False
             _config_error = _validate_error
