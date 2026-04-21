@@ -44,11 +44,7 @@ class SignalLinker:
     def _load_existing_account_numbers(self) -> set[str]:
         """Return known Signal account numbers from signal-cli data."""
         try:
-            return {
-                account["number"]
-                for account in get_existing_accounts()
-                if account.get("number")
-            }
+            return {account["number"] for account in get_existing_accounts() if account.get("number")}
         except Exception as exc:
             logger.warning("Could not load existing accounts while linking: %s", exc)
             return set()
