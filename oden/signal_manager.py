@@ -65,6 +65,14 @@ def _get_standard_signal_cli_paths() -> list[Path]:
     return paths
 
 
+def get_signal_data_search_paths() -> list[Path]:
+    """Return all signal-cli data directories Oden should inspect."""
+    data_paths = _get_standard_signal_cli_paths()
+    if cfg.SIGNAL_DATA_PATH not in data_paths:
+        data_paths.append(cfg.SIGNAL_DATA_PATH)
+    return data_paths
+
+
 def resolve_signal_data_path() -> Path:
     """Determine the best signal-cli data directory to use.
 
@@ -313,9 +321,7 @@ def get_existing_accounts() -> list[dict]:
     accounts = []
 
     # Build search list: standard locations + Oden custom location
-    data_paths = _get_standard_signal_cli_paths()
-    if cfg.SIGNAL_DATA_PATH not in data_paths:
-        data_paths.append(cfg.SIGNAL_DATA_PATH)
+    data_paths = get_signal_data_search_paths()
 
     logger.debug(f"Searching for Signal accounts in: {data_paths}")
 
