@@ -244,6 +244,40 @@ class TestSignalLinkerInvalidACI(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(linker.status, "error")
         self.assertEqual(linker.error, "Some other error occurred")
 
+    @patch("oden.signal_linker.get_existing_accounts")
+    @patch("oden.signal_manager.get_bundled_signal_cli_path", return_value=None)
+    @patch("shutil.which", return_value="/usr/bin/signal-cli")
+    async def test_wait_for_link_recovers_number_from_accounts(
+        self,
+        mock_which,
+        mock_bundled,
+        mock_get_existing_accounts,
+    ):
+        """Successful links should recover the number from accounts.json when stdout omits it."""
+        from oden.signal_linker import SignalLinker
+
+        mock_get_existing_accounts.return_value = [
+            {"number": "+46701111111"},
+            {"number": "+46702222222"},
+        ]
+
+        linker = SignalLinker(device_name="Test")
+        linker._accounts_before = {"+46701111111"}
+
+        mock_process = AsyncMock()
+        mock_process.returncode = 0
+        mock_process.communicate.return_value = (
+            b"Device linked successfully\n",
+            b"",
+        )
+        linker.process = mock_process
+
+        result = await linker.wait_for_link(timeout=5.0)
+
+        self.assertTrue(result)
+        self.assertEqual(linker.status, "linked")
+        self.assertEqual(linker.linked_number, "+46702222222")
+
 
 class TestSignalLinkerStartLink(unittest.IsolatedAsyncioTestCase):
     """Tests for SignalLinker.start_link() multi-line URI detection."""
