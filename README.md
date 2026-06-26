@@ -48,6 +48,8 @@ Sista steget behövs eftersom vi saknar Apple-certifikat. Alternativt kan du hö
 
 ### Windows (inbyggd installationsfil)
 
+Om en Windows-installerare finns bifogad till releasen:
+
 **Manuell installation:**
 
 1. Ladda ner `.exe` från [senaste releasen](https://github.com/NicklasAndersson/oden/releases/latest)
@@ -172,6 +174,64 @@ Noteringar:
 - PR snapshot-release är avsedd för verifiering och kan ersättas av nyare snapshot för samma PR.
 - Vanliga snapshot-releaser från `main` påverkas inte av PR snapshot-flödet.
 
+### Versioned release (smidig `gh`-process)
+
+Använd detta när du ska skapa en stabil release (t.ex. `v3.1.2`) via PR + tag.
+
+```bash
+# 0) Sätt version
+VERSION=v3.1.2
+
+# 1) Utgå från senaste main
+git checkout main
+git pull
+
+# 2) Skapa release-branch
+git checkout -b release/$VERSION
+
+# 3) Uppdatera CHANGELOG.md
+# Lägg in ny sektion: ## [$VERSION] - YYYY-MM-DD
+
+# 4) Commit + push
+git add CHANGELOG.md
+git commit -m "chore: prepare release $VERSION"
+git push -u origin release/$VERSION
+
+# 5) Skapa PR
+env PAGER=cat GH_PAGER=cat GIT_PAGER=cat /opt/homebrew/bin/gh pr create \
+  --base main \
+  --head release/$VERSION \
+  --title "chore: release $VERSION" \
+  --body "## Summary\n- prepare changelog for $VERSION"
+
+# 6) Hämta PR-nummer (justera om du vill ange manuellt)
+PR_NUMBER=$(env PAGER=cat GH_PAGER=cat /opt/homebrew/bin/gh pr view --json number --jq .number)
+
+# 7) Vänta in gröna checks
+env PAGER=cat GH_PAGER=cat GIT_PAGER=cat /opt/homebrew/bin/gh pr checks "$PR_NUMBER"
+
+# 8) Merga PR
+# Först normal merge:
+env PAGER=cat GH_PAGER=cat /opt/homebrew/bin/gh pr merge "$PR_NUMBER" --squash --delete-branch
+
+# Om branch policy kräver review och blockerar self-merge:
+env PAGER=cat GH_PAGER=cat /opt/homebrew/bin/gh pr merge "$PR_NUMBER" --squash --delete-branch --admin
+
+# 9) Synka main och tagga release
+git checkout main
+git pull
+git tag -a "$VERSION" -m "Release $VERSION"
+git push origin "$VERSION"
+
+# 10) Verifiera att releasen finns
+env PAGER=cat GH_PAGER=cat /opt/homebrew/bin/gh release view "$VERSION"
+```
+
+Viktigt:
+
+- Taggar är immutabla i denna process. Om något blir fel, skapa ny patch-version (t.ex. `v3.1.3`) istället för att flytta en befintlig tag.
+- Om `gh pr checks` visar pending/failing checks, invänta grönt innan merge.
+
 ### Funktioner
 
 - **Setup-wizard** - Guidar dig genom konfigurationen vid första start
@@ -180,7 +240,7 @@ Noteringar:
 - **Multi-account** - Hantera flera Signal-konton via *Signal-konton*-fliken (länka, aktivera, radera)
 - **System Tray** - Starta/stoppa, öppna GUI och avsluta Oden från systemfältet (macOS/Linux/Windows)
 - **Svara på meddelande** - Svaret läggs till i din senaste rapport (inom 30 min)
-- **`++` kommando** - Meddelanden som börjar med `++` läggs till i senaste rapporten *(avstängt per default, aktiveras i config)*
+- **`++` prefix** - Behandlas som vanligt meddelande (legacy append-prefix är borttaget)
 - **7S RAPPORT** - Specialpipeline för 7S-format som skriver specad 7S-utdata med schemaformad frontmatter
 - **Platslänkar** - Google Maps, Apple Maps och OSM-länkar omvandlas automatiskt till geo-koordinater
 - **Anpassningsbara rapportmallar** - Redigera Jinja2-mallar direkt i GUI:ns template-editor
@@ -226,6 +286,7 @@ Vid första start visas en setup-wizard som guidar dig genom konfigurationen:
 ![Web GUI - Dashboard](images/dashboard.png)
 
 **Funktioner:**
+
 - Visa och redigera konfiguration
 - Live-loggar (uppdateras var 3:e sekund)
 - Gå med i grupper via inbjudningslänk
@@ -260,7 +321,7 @@ Vid första start visas en setup-wizard som guidar dig genom konfigurationen:
 Oden fungerar bäst tillsammans med:
 
 | Programvara | Beskrivning | Länk |
-|-------------|-------------|------|
+| --- | --- | --- |
 | **Signal Desktop** | För att administrera grupper och se meddelanden | [signal.org/download](https://signal.org/download/) |
 | **Obsidian** | Markdown-editor för att läsa och organisera rapporter | [obsidian.md/download](https://obsidian.md/download) |
 | **Obsidian Map View** | Visa positioner från rapporter på en karta i Obsidian | [GitHub](https://github.com/esm7/obsidian-map-view) |
